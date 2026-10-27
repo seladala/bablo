@@ -3,6 +3,7 @@ package com.bablo.app
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -10,65 +11,135 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.random.Random
 
-enum class Upgrade(
+/**
+ * Генераторы бабла. Каждый следующий в 100 раз дороже и в 65 раз доходнее предыдущего,
+ * так что окупаемость медленно растёт и каждые три нуля даются примерно за полтора часа игры.
+ */
+enum class Gen(val emoji: String, val title: String, val flavor: String) {
+    GRANNY("👵", "Бабушкин кошелёк", "Бабушка подкидывает на мороженое"),
+    SHAWARMA("🌯", "Шаурмичная", "Шаурма с баблом внутри"),
+    ATM("🏧", "Банкомат-67", "Выдаёт только купюры по 67"),
+    FARM("🌱", "Бабло-ферма", "Бабло растёт на деревьях"),
+    MINER("⛏️", "Крипто-майнер", "Майнит БаблоКоин"),
+    FACTORY("🏭", "Бабло-завод", "Печатает бабло в три смены"),
+    OFFSHORE("🏝️", "Офшор", "Бабло загорает и множится"),
+    CENTRAL("🏦", "Центробанк", "Сам решает, сколько бабла нужно"),
+    OIL("🛢️", "Бабло-вышка", "Качает жидкое бабло из недр"),
+    PORTAL("🌀", "Бабло-портал 67", "Бабло из параллельной вселенной"),
+    SPACE("🚀", "Космобанк", "Филиалы на орбите"),
+    GALAXY("🪐", "Галактический ЦБ", "Курс бабла к звёздам"),
+    TIME("⏳", "Машина времени", "Привозит бабло из будущего"),
+    DNA("🧬", "Бабло-ДНК", "Бабло в каждой клетке"),
+    MULTIVERSE("🌌", "Мультивселенная", "Бабло во всех вселенных сразу"),
+    REACTOR("⚛️", "ULTRA 6-7 Реактор", "Расщепляет 6 и 7 на бабло"),
+    EYE("👁️", "Око Бабла", "Видит всё бабло мира"),
+    HAMMAM_DIM("♨️", "Хаммам-измерение", "Измерение, где всё — пар и бабло");
+
+    val baseCost: Double get() = 15.0 * 100.0.pow(ordinal)
+    val baseOut: Double get() = 0.1 * 65.0.pow(ordinal)
+}
+
+val GEN_MILESTONES = intArrayOf(25, 50, 100, 200, 300, 400, 500)
+
+/** Разовые улучшения кнопки. У каждого — своя механика, а не просто «+1». */
+enum class Perk(
     val emoji: String,
     val title: String,
     val description: String,
-    val baseCost: Double,
-    val growth: Double,
-    val maxLevel: Int,
+    val cost: Double,
+    val requires: String? = null,
 ) {
-    POWER("👊", "Сила нажатия", "+1 бабло за каждый тык", 10.0, 1.45, 999),
-    AUTO("🤖", "Автобабломёт", "+1 тык в секунду сам по себе", 50.0, 1.5, 999),
-    MULT("💎", "Бабломножитель", "x2 ко всему баблу за уровень", 1_000.0, 2.6, 200),
-    CRIT("⚡", "Критобабло", "+5% шанс крита (x10 бабла)", 250.0, 1.9, 10),
-    COMBO("🔥", "Комбо-усилитель", "Комбо даёт больше бонуса", 500.0, 2.2, 20),
-    SIZE("🟢", "Ультимативный размер", "Кнопка больше и мощнее (+67%)", 300.0, 2.67, 6),
-    HOLD("✊", "Турбо-зажим", "Быстрее автотыки при зажатии кнопки", 400.0, 2.0, 15),
-    TURBO_TIME("⏱️", "Долгий буль", "+5 сек работы турбо-выбулькивателя", 800.0, 2.5, 12),
-    LUCK("🍀", "Бабло-удача", "Золотые мешки чаще и щедрее", 2_000.0, 2.8, 10),
+    SAUSAGE("🌭", "Пальцы-сосиски", "Тык x2", 150.0),
+    TITAN("🦾", "Титановый палец", "Тык ещё x2", 5e3, "SAUSAGE"),
+    CRIT("⚡", "Критический палец", "5% шанс крита: тык x10", 2e3),
+    HOLD("✊", "Турбо-зажим", "Зажатая кнопка тычет вдвое быстрее", 2e4),
+    PCT1("💹", "Тык с процентом", "Тык приносит +1% дохода/сек", 5e4),
+    SIZE("🟢", "Ультимативный размер", "Кнопка больше, тык x2", 6.7e4),
+    COMBO("🔥", "Комбо-мастер", "Комбо +2% за тык (вместо 1%) и прощает паузы", 1e5),
+    ECHO("🔁", "Эхо-тык", "10% шанс, что тык отзовётся эхом x3", 3e5),
+    LONG_BUL("🫧", "Долгий буль", "Турбо-выбулькиватель работает на 15 сек дольше", 1e6),
+    SHARP("🔪", "Острый крит", "Крит x25 вместо x10", 2e6, "CRIT"),
+    MAGNET("🧲", "Магнит мешков", "Золотые мешки чаще и живут дольше", 5e6),
+    ACCU("🔋", "Ультра-аккумулятор", "Ультра-бабло заряжается вдвое быстрее", 1e7),
+    PCT2("💹", "Тык с двумя процентами", "Ещё +2% дохода/сек к тыку", 5e7, "PCT1"),
+    GOLD67("👑", "Золотая кнопка 67", "Тык x6.7", 6.7e7, "SIZE"),
+    RESONANCE("🫧", "Буль-резонанс", "Каждый буль приносит ещё полсекунды дохода", 1e8, "LONG_BUL"),
+    MANIA("🎯", "Крит-мания", "Шанс крита +7%", 5e8, "SHARP"),
+    SHAWARMA_CRIT("🌯", "Шаурма-крит", "3% критов выбивают золотой мешок", 5e9, "MANIA"),
+    SIXTH_SENSE("6️⃣", "Шестьдесят седьмое чувство", "Режим 67 длится вдвое дольше", 6.7e9),
+    PCT3("💹", "Тык с тремя процентами", "Ещё +3% дохода/сек к тыку", 5e10, "PCT2"),
+    ROULETTE("🎰", "Бабло-рулетка", "Каждый 67-й тык — случайный приз", 1e12),
+    ULTRA_FINGER("💥", "ULTRA 6-7 палец", "Лихорадка ULTRA 6-7 даёт x67 вместо x6.7", 6.7e13, "GOLD67");
+
+    val requiresPerk: Perk? get() = requires?.let { valueOf(it) }
 }
+
+data class HammamStage(val title: String, val perk: String)
+
+/** Хаммам нельзя купить. Но каждый этап улучшения открывает новую механику. */
+val HAMMAM_STAGES = listOf(
+    HammamStage("Холодный предбанник", "Открывает жар: каждый тык греет хаммам, жар усиливает тык до x2"),
+    HammamStage("Тёплый пар", "Хаммам остывает вдвое медленнее"),
+    HammamStage("Берёзовый веник", "При жаре от 67° шанс крита +10%"),
+    HammamStage("Мраморный лежак", "Жар усиливает и генераторы"),
+    HammamStage("Турецкий массаж", "Золотые мешки появляются вдвое чаще"),
+    HammamStage("Золотой таз", "Кипение: при жаре от 90° каждые 10 сек капает 10 сек дохода"),
+    HammamStage("Пар 67°", "Перезарядка режима 67 на треть короче"),
+    HammamStage("Хрустальный купол", "Максимальный жар 150°"),
+    HammamStage("Королевская пена", "Комбо не сгорает 2 сек"),
+    HammamStage("Ультра-пар", "Ультра-бабло заряжается вдвое быстрее"),
+    HammamStage("Хаммам 6-7", "Лихорадка ULTRA 6-7 длится вдвое дольше"),
+    HammamStage("Космический хаммам", "Оффлайн-доход 50% вместо 10%"),
+    HammamStage("Хаммам вечности", "Жар никогда не падает ниже 67°"),
+    HammamStage("Хаммам абсолюта", "Максимальный жар 200°"),
+    HammamStage("ULTRA 6-7 ХАММАМ", "Всё бабло x6.7"),
+)
 
 enum class Skin(val title: String, val emoji: String, val price: Double, val colors: List<Color>, val bonus: Double) {
     CLASSIC("Классика", "🟢", 0.0, listOf(Color(0xFFB9F6CA), Color(0xFF00E676), Color(0xFF1B5E20)), 1.0),
-    GOLD("Золото", "🟡", 1e6, listOf(Color(0xFFFFF9C4), Color(0xFFFFD600), Color(0xFFFF6F00)), 1.1),
-    NEON("Неон", "🟣", 1e9, listOf(Color(0xFFF8BBD0), Color(0xFFFF4081), Color(0xFF4A148C)), 1.2),
-    ICE("Лёд", "🔵", 1e12, listOf(Color(0xFFE1F5FE), Color(0xFF40C4FF), Color(0xFF01579B)), 1.3),
-    LAVA("Лава", "🔴", 1e15, listOf(Color(0xFFFFF3E0), Color(0xFFFF3D00), Color(0xFF3E0000)), 1.5),
-    RAINBOW("Радуга", "🌈", 1e18, listOf(Color.White, Color.Magenta, Color.Blue), 1.67),
-    HAMMAM("Хаммам", "🧖", 1e21, listOf(Color(0xFFFFFFFF), Color(0xFFFFCC80), Color(0xFF6D4C41)), 2.0),
-    ULTRA67("ULTRA 6-7", "6️⃣7️⃣", 6.7e25, listOf(Color(0xFFFFE57F), Color(0xFFAA00FF), Color(0xFF12005E)), 6.7),
+    GOLD("Золото", "🟡", 1e4, listOf(Color(0xFFFFF9C4), Color(0xFFFFD600), Color(0xFFFF6F00)), 1.02),
+    NEON("Неон", "🟣", 1e7, listOf(Color(0xFFF8BBD0), Color(0xFFFF4081), Color(0xFF4A148C)), 1.04),
+    ICE("Лёд", "🔵", 1e10, listOf(Color(0xFFE1F5FE), Color(0xFF40C4FF), Color(0xFF01579B)), 1.06),
+    LAVA("Лава", "🔴", 1e13, listOf(Color(0xFFFFF3E0), Color(0xFFFF3D00), Color(0xFF3E0000)), 1.08),
+    RAINBOW("Радуга", "🌈", 1e16, listOf(Color.White, Color.Magenta, Color.Blue), 1.15),
+    HAMMAM("Хаммам", "🧖", 1e22, listOf(Color(0xFFFFFFFF), Color(0xFFFFCC80), Color(0xFF6D4C41)), 1.25),
+    ULTRA67("ULTRA 6-7", "6️⃣7️⃣", 6.7e25, listOf(Color(0xFFFFE57F), Color(0xFFAA00FF), Color(0xFF12005E)), 1.67),
 }
 
 enum class Achievement(val emoji: String, val title: String, val description: String, val check: (BabloGame) -> Boolean) {
     FIRST("👆", "Первый тык", "Нажать на БАБЛО", { it.totalClicks >= 1 }),
     CLICKS_67("6️⃣", "Шестьдесят семь", "67 тыков", { it.totalClicks >= 67 }),
-    CLICKS_6767("7️⃣", "6767", "6767 тыков", { it.totalClicks >= 6767 }),
-    THOUSAND("💵", "Первая тыща", "1 000 бабла", { it.totalEarned >= 1e3 }),
-    MILLION("💰", "Миллионер", "1 млн бабла", { it.totalEarned >= 1e6 }),
-    BILLION("🏦", "Миллиардер", "1 млрд бабла", { it.totalEarned >= 1e9 }),
-    QUINT("🪐", "Квинтиллионер", "10^18 бабла", { it.totalEarned >= 1e18 }),
+    CLICKS_6767("7️⃣", "6767", "6 767 тыков", { it.totalClicks >= 6767 }),
+    CLICKS_67K("🖐️", "Мозоль", "67 000 тыков", { it.totalClicks >= 67_000 }),
+    THOUSAND("💵", "Первая тыща", "Заработать 1 000", { it.totalEarned >= 1e3 }),
+    MILLION("💰", "Миллионер", "Заработать 1 млн", { it.totalEarned >= 1e6 }),
+    BILLION("🏦", "Миллиардер", "Заработать 1 млрд", { it.totalEarned >= 1e9 }),
+    TRILLION("🤑", "Триллионер", "Заработать 1 трлн", { it.totalEarned >= 1e12 }),
+    QUINT("🪐", "Квинтиллионер", "Заработать 10¹⁸", { it.totalEarned >= 1e18 }),
+    DECILL("🌌", "Почти вывод", "Заработать 10³⁰", { it.totalEarned >= 1e30 }),
+    GEN_FIRST("👵", "Бизнесмен", "Купить первый генератор", { it.totalGens() >= 1 }),
+    GEN_100("🌯", "Сеть шаурмичных", "100 генераторов одного типа", { g -> Gen.entries.any { g.count(it) >= 100 } }),
+    GEN_TOP("⚛️", "Реакторщик", "Купить ULTRA 6-7 Реактор", { it.count(Gen.REACTOR) >= 1 }),
+    PERKS_10("🛠️", "Тюнинг кнопки", "10 улучшений кнопки", { it.ownedPerks.size >= 10 }),
+    PERKS_ALL("💎", "Ультимативная кнопка", "Все улучшения кнопки", { it.ownedPerks.size >= Perk.entries.size }),
     COMBO_25("🔥", "Горячие пальцы", "Комбо x25", { it.maxCombo >= 25 }),
     COMBO_67("💥", "ULTRA 6-7", "Комбо x67 — включить лихорадку", { it.maxCombo >= 67 }),
     HAMMAM_1("🚫", "Наивный", "Попытаться купить хаммам", { it.hammamAttempts >= 1 }),
     HAMMAM_67("🧱", "Упрямый", "67 раз попытаться купить хаммам", { it.hammamAttempts >= 67 }),
     HAMMAM_UP("🧖", "Пар пошёл", "Улучшить хаммам (не покупая!)", { it.hammamLevel >= 1 }),
+    HAMMAM_HOT("🌡️", "Жарко!", "Разогреть хаммам до 100°", { it.temperature >= 100f }),
     HAMMAM_MAX("👑", "Хозяин пара", "Хаммам на максимум", { it.hammamLevel >= HAMMAM_STAGES.size }),
+    ULTRA("⚡", "Заряжено", "Включить ультра-бабло", { it.ultraUses >= 1 }),
     GOLDEN("✨", "Золотая рука", "Поймать золотой мешок", { it.goldenCaught >= 1 }),
-    GOLDEN_10("🌟", "Ловец мешков", "Поймать 10 золотых мешков", { it.goldenCaught >= 10 }),
+    GOLDEN_25("🌟", "Ловец мешков", "Поймать 25 золотых мешков", { it.goldenCaught >= 25 }),
     SKIN("🎨", "Модник", "Купить скин кнопки", { it.ownedSkins.size >= 2 }),
     WITHDRAW("💳", "Вывел!", "Вывести 68 квинтиллиардов", { it.withdrawals >= 1 }),
 }
-
-val HAMMAM_STAGES = listOf(
-    "Холодный предбанник", "Тёплый пар", "Берёзовый веник", "Мраморный лежак", "Турецкий массаж",
-    "Золотой таз", "Пар 67°", "Хрустальный купол", "Королевская пена", "Ультра-пар",
-    "Хаммам 6-7", "Космический хаммам", "Хаммам вечности", "Хаммам абсолюта", "ULTRA 6-7 ХАММАМ",
-)
 
 data class GoldenBag(val xFrac: Float, val yFrac: Float, val expiresAt: Long)
 
@@ -76,9 +147,25 @@ data class GoldenBag(val xFrac: Float, val yFrac: Float, val expiresAt: Long)
 class BabloGame(context: Context) {
     private val prefs = context.getSharedPreferences("bablo", Context.MODE_PRIVATE)
 
-    var money by mutableDoubleStateOf(Double.fromBits(prefs.getLong("money", 0L)))
+    init {
+        // v3: полный ребаланс экономики — старые сохранения с бешеными числами сбрасываем.
+        if (prefs.getInt("version", 0) < SAVE_VERSION) {
+            val sound = prefs.getBoolean("sound", true)
+            val vibration = prefs.getBoolean("vibration", true)
+            prefs.edit().clear()
+                .putBoolean("sound", sound)
+                .putBoolean("vibration", vibration)
+                .putInt("version", SAVE_VERSION)
+                .putLong("lastSeen", System.currentTimeMillis())
+                .apply()
+        }
+    }
+
+    private fun loadDouble(key: String) = Double.fromBits(prefs.getLong(key, 0L))
+
+    var money by mutableDoubleStateOf(loadDouble("money"))
         private set
-    var totalEarned by mutableDoubleStateOf(Double.fromBits(prefs.getLong("earned", 0L)))
+    var totalEarned by mutableDoubleStateOf(loadDouble("earned"))
         private set
     var totalClicks by mutableIntStateOf(prefs.getInt("clicks", 0))
         private set
@@ -96,26 +183,34 @@ class BabloGame(context: Context) {
         private set
     var goldenCaught by mutableIntStateOf(prefs.getInt("golden", 0))
         private set
+    var ultraCharge by mutableIntStateOf(prefs.getInt("ultraCharge", 0))
+        private set
+    var ultraUses by mutableIntStateOf(prefs.getInt("ultraUses", 0))
+        private set
+    var temperature by mutableFloatStateOf(prefs.getFloat("temp", 0f))
+        private set
 
-    var ultraBablo by mutableStateOf(prefs.getBoolean("ultra", false))
     var soundOn by mutableStateOf(prefs.getBoolean("sound", true))
     var vibrationOn by mutableStateOf(prefs.getBoolean("vibration", true))
+
+    /** 1, 10 или 0 (= максимум) — сколько генераторов покупать за раз. */
+    var buyAmount by mutableIntStateOf(1)
 
     var skin by mutableStateOf(Skin.entries.firstOrNull { it.name == prefs.getString("skin", null) } ?: Skin.CLASSIC)
     val ownedSkins = mutableStateListOf<Skin>().apply {
         add(Skin.CLASSIC)
-        prefs.getStringSet("skins", emptySet())!!.forEach { n ->
-            Skin.entries.firstOrNull { it.name == n && it != Skin.CLASSIC }?.let { add(it) }
-        }
+        addAll(namesToEntries(prefs.getStringSet("skins", null), Skin.entries).filter { it != Skin.CLASSIC })
     }
-
+    val ownedPerks = mutableStateListOf<Perk>().apply {
+        addAll(namesToEntries(prefs.getStringSet("perks", null), Perk.entries))
+    }
     val unlocked = mutableStateListOf<Achievement>().apply {
-        prefs.getStringSet("achievements", emptySet())!!.forEach { n ->
-            Achievement.entries.firstOrNull { it.name == n }?.let { add(it) }
-        }
+        addAll(namesToEntries(prefs.getStringSet("achievements", null), Achievement.entries))
     }
     /** Только что полученные достижения, UI показывает и убирает их. */
     val pendingAchievements = mutableStateListOf<Achievement>()
+
+    private val gens = Gen.entries.associateWith { mutableIntStateOf(prefs.getInt("gen_${it.name}", 0)) }
 
     /** Часы игры: обновляются ~10 раз в секунду, от них зависят все таймеры. */
     var clock by mutableLongStateOf(System.currentTimeMillis())
@@ -125,34 +220,87 @@ class BabloGame(context: Context) {
     private var turboReady by mutableLongStateOf(prefs.getLong("turboReady", 0L))
     private var m67End by mutableLongStateOf(prefs.getLong("m67End", 0L))
     private var m67Ready by mutableLongStateOf(prefs.getLong("m67Ready", 0L))
+    private var ultraEnd by mutableLongStateOf(prefs.getLong("ultraEnd", 0L))
     private var feverEnd by mutableLongStateOf(0L)
     private var frenzyEnd by mutableLongStateOf(0L)
 
     var golden by mutableStateOf<GoldenBag?>(null)
         private set
-    private var nextGoldenAt = System.currentTimeMillis() + 20_000
+    private var nextGoldenAt = System.currentTimeMillis() + 45_000
 
-    private val levels = Upgrade.entries.associateWith {
-        mutableIntStateOf(prefs.getInt("lvl_${it.name}", 0))
-    }
+    /** Сколько накапало, пока игрок отсутствовал; UI показывает и обнуляет. */
+    var offlineGain by mutableStateOf<Double?>(null)
 
     private var lastClickMs = 0L
     private var autoAcc = 0.0
     private var turboAcc = 0.0
+    private var boilAcc = 0.0
     private var achievementAcc = 0.0
 
-    // ---------- Улучшения ----------
+    init {
+        val away = (System.currentTimeMillis() - prefs.getLong("lastSeen", System.currentTimeMillis())).coerceIn(0, 8 * 3_600_000L)
+        if (away > 60_000) {
+            val gain = genPerSecondBase() * baseMultiplier() * offlineRate * away / 1000.0
+            if (gain >= 1) {
+                earn(gain)
+                offlineGain = gain
+            }
+        }
+    }
 
-    fun level(u: Upgrade): Int = levels.getValue(u).intValue
+    // ---------- Генераторы ----------
 
-    fun cost(u: Upgrade): Double = u.baseCost * u.growth.pow(level(u))
+    fun count(g: Gen): Int = gens.getValue(g).intValue
 
-    fun canBuy(u: Upgrade) = level(u) < u.maxLevel && money >= cost(u)
+    fun totalGens(): Int = gens.values.sumOf { it.intValue }
 
-    fun buy(u: Upgrade): Boolean {
-        if (!canBuy(u)) return false
-        money -= cost(u)
-        levels.getValue(u).intValue++
+    fun genMilestoneMult(g: Gen): Double = 2.0.pow(GEN_MILESTONES.count { count(g) >= it })
+
+    fun nextMilestone(g: Gen): Int? = GEN_MILESTONES.firstOrNull { count(g) < it }
+
+    /** Генератор виден, если куплен предыдущий (первый виден всегда). */
+    fun genVisible(g: Gen) = g.ordinal == 0 || count(Gen.entries[g.ordinal - 1]) > 0 || count(g) > 0
+
+    private fun costOf(g: Gen, n: Int): Double {
+        val first = g.baseCost * GEN_GROWTH.pow(count(g))
+        return first * (GEN_GROWTH.pow(n) - 1) / (GEN_GROWTH - 1)
+    }
+
+    fun buyCount(g: Gen): Int = if (buyAmount > 0) buyAmount else {
+        val first = g.baseCost * GEN_GROWTH.pow(count(g))
+        floor(ln(money * (GEN_GROWTH - 1) / first + 1) / ln(GEN_GROWTH)).toInt().coerceAtLeast(1)
+    }
+
+    fun genCost(g: Gen): Double = costOf(g, buyCount(g))
+
+    fun canBuyGen(g: Gen) = money >= genCost(g)
+
+    fun buyGen(g: Gen): Boolean {
+        val n = buyCount(g)
+        val c = costOf(g, n)
+        if (money < c) return false
+        money -= c
+        gens.getValue(g).intValue += n
+        return true
+    }
+
+    /** Доход одного генератора в секунду с учётом всех множителей. */
+    fun genEach(g: Gen): Double = g.baseOut * genMilestoneMult(g) * genMultiplier
+
+    private fun genPerSecondBase(): Double = Gen.entries.sumOf { count(it) * it.baseOut * genMilestoneMult(it) }
+
+    // ---------- Улучшения кнопки ----------
+
+    fun has(p: Perk) = p in ownedPerks
+
+    fun perkAvailable(p: Perk) = !has(p) && (p.requiresPerk?.let { has(it) } ?: true)
+
+    fun canBuyPerk(p: Perk) = perkAvailable(p) && money >= p.cost
+
+    fun buyPerk(p: Perk): Boolean {
+        if (!canBuyPerk(p)) return false
+        money -= p.cost
+        ownedPerks += p
         return true
     }
 
@@ -164,19 +312,29 @@ class BabloGame(context: Context) {
         return HAMMAM_REFUSALS[(hammamAttempts - 1) % HAMMAM_REFUSALS.size]
     }
 
+    fun hammamHas(stage: Int) = hammamLevel >= stage
+
     val hammamMaxed get() = hammamLevel >= HAMMAM_STAGES.size
-    val hammamCost: Double get() = 6_700.0 * 14.0.pow(hammamLevel)
+    val hammamCost: Double get() = 1e4 * 100.0.pow(hammamLevel)
     fun canUpgradeHammam() = !hammamMaxed && money >= hammamCost
 
     fun upgradeHammam(): Boolean {
         if (!canUpgradeHammam()) return false
         money -= hammamCost
         hammamLevel++
+        if (hammamHas(13)) temperature = temperature.coerceAtLeast(67f)
         return true
     }
 
-    /** Расслабон из хаммама сокращает перезарядку режимов. */
-    val cooldownFactor: Double get() = (1.0 - 0.04 * hammamLevel).coerceAtLeast(0.4)
+    val maxTemperature: Float get() = when {
+        hammamHas(14) -> 200f
+        hammamHas(8) -> 150f
+        else -> 100f
+    }
+
+    val tempMult: Double get() = if (hammamHas(1)) 1.0 + temperature / 100.0 else 1.0
+
+    val offlineRate: Double get() = if (hammamHas(12)) 0.5 else 0.1
 
     // ---------- Скины ----------
 
@@ -197,8 +355,8 @@ class BabloGame(context: Context) {
     // ---------- Режимы с таймерами ----------
 
     val turbo: Boolean get() = clock < turboEnd
-    val turboDurationMs: Long get() = 20_000L + 5_000L * level(Upgrade.TURBO_TIME)
-    val turboCooldownMs: Long get() = (60_000 * cooldownFactor).toLong()
+    val turboDurationMs: Long get() = if (has(Perk.LONG_BUL)) 35_000L else 20_000L
+    val turboCooldownMs: Long get() = 90_000L
     val turboLeftMs: Long get() = (turboEnd - clock).coerceAtLeast(0)
     val turboReadyInMs: Long get() = (turboReady - clock).coerceAtLeast(0)
 
@@ -212,15 +370,31 @@ class BabloGame(context: Context) {
     }
 
     val mode67: Boolean get() = clock < m67End
+    val mode67DurationMs: Long get() = if (has(Perk.SIXTH_SENSE)) 134_000L else 67_000L
+    val mode67CooldownMs: Long get() = if (hammamHas(7)) 245_000L else 367_000L
     val mode67LeftMs: Long get() = (m67End - clock).coerceAtLeast(0)
     val mode67ReadyInMs: Long get() = (m67Ready - clock).coerceAtLeast(0)
-    val mode67CooldownMs: Long get() = (167_000 * cooldownFactor).toLong()
 
     fun activate67(): Boolean {
         val now = System.currentTimeMillis()
         if (now < m67Ready) return false
-        m67End = now + MODE67_DURATION
+        m67End = now + mode67DurationMs
         m67Ready = m67End + mode67CooldownMs
+        clock = now
+        return true
+    }
+
+    /** Ультра-бабло: копится ручными тыками, потом 30 сек x5. */
+    val ultraBablo: Boolean get() = clock < ultraEnd
+    val ultraLeftMs: Long get() = (ultraEnd - clock).coerceAtLeast(0)
+    val ultraReady: Boolean get() = !ultraBablo && ultraCharge >= ULTRA_CHARGE
+
+    fun activateUltra(): Boolean {
+        if (!ultraReady) return false
+        val now = System.currentTimeMillis()
+        ultraEnd = now + ULTRA_DURATION
+        ultraCharge = 0
+        ultraUses++
         clock = now
         return true
     }
@@ -228,62 +402,130 @@ class BabloGame(context: Context) {
     /** ULTRA 6-7 лихорадка: включается на каждом комбо, кратном 67. */
     val fever: Boolean get() = clock < feverEnd
     val feverLeftMs: Long get() = (feverEnd - clock).coerceAtLeast(0)
+    private val feverMult: Double get() = if (has(Perk.ULTRA_FINGER)) 67.0 else 6.7
 
     /** Бабло-безумие от золотого мешка. */
     val frenzy: Boolean get() = clock < frenzyEnd
 
     // ---------- Экономика ----------
 
+    /** Постоянные множители: жетоны, скин, ачивки, хаммам. */
+    private fun baseMultiplier(): Double {
+        var m = (1.0 + 0.67 * tokens) * skin.bonus * (1.0 + 0.01 * unlocked.size) * 1.5.pow(hammamLevel)
+        if (hammamHas(15)) m *= 6.7
+        return m
+    }
+
+    /** Все множители, включая временные режимы. */
     val multiplier: Double
         get() {
-            var m = 2.0.pow(level(Upgrade.MULT)) * 2.0.pow(hammamLevel) * (1.0 + 0.67 * tokens) * skin.bonus
-            if (mode67) m *= 67.0
-            if (ultraBablo) m *= 10.0
-            if (turbo) m *= 1.5
-            if (fever) m *= 67.0
+            var m = baseMultiplier()
+            if (mode67) m *= 6.7
+            if (ultraBablo) m *= 5.0
+            if (fever) m *= feverMult
             if (frenzy) m *= 7.0
             return m
         }
 
-    val critChance: Float get() = 0.05f * level(Upgrade.CRIT)
+    private val genMultiplier: Double get() = multiplier * (if (hammamHas(4)) tempMult else 1.0)
 
-    val comboBonus: Double get() = combo * (0.01 + 0.01 * level(Upgrade.COMBO))
+    val perSecond: Double get() = genPerSecondBase() * genMultiplier
 
-    val perClick: Double get() = (1.0 + level(Upgrade.POWER)) * (1.0 + level(Upgrade.SIZE) * 0.67) * multiplier
+    private val clickBase: Double
+        get() {
+            var c = 1.0
+            if (has(Perk.SAUSAGE)) c *= 2
+            if (has(Perk.TITAN)) c *= 2
+            if (has(Perk.SIZE)) c *= 2
+            if (has(Perk.GOLD67)) c *= 6.7
+            return c
+        }
 
-    val perSecond: Double get() = level(Upgrade.AUTO) * perClick * 0.5
+    private val clickPct: Double
+        get() = (if (has(Perk.PCT1)) 0.01 else 0.0) + (if (has(Perk.PCT2)) 0.02 else 0.0) + (if (has(Perk.PCT3)) 0.03 else 0.0)
 
-    val holdRate: Double get() = 8.0 + 2.0 * level(Upgrade.HOLD)
+    val perClick: Double get() = clickBase * multiplier * tempMult + clickPct * perSecond
 
-    val buttonScale: Float get() = 1f + level(Upgrade.SIZE) * 0.06f
+    val critChance: Float
+        get() = (if (has(Perk.CRIT)) 0.05f else 0f) + (if (has(Perk.MANIA)) 0.07f else 0f) +
+            (if (hammamHas(3) && temperature >= 67f) 0.10f else 0f)
+
+    private val critMult: Double get() = if (has(Perk.SHARP)) 25.0 else 10.0
+
+    val comboBonus: Double get() = combo.coerceAtMost(67) * (if (has(Perk.COMBO)) 0.02 else 0.01)
+
+    private val comboWindowMs: Long get() = if (has(Perk.COMBO)) 700L else 450L
+    private val comboGraceMs: Long get() = if (hammamHas(9)) 2_000L else 900L
+
+    val holdRate: Double get() = if (has(Perk.HOLD)) 12.0 else 6.0
+
+    val buttonScale: Float get() = if (has(Perk.SIZE)) 1.2f else 1f
 
     private fun earn(x: Double) {
         money += x
         totalEarned += x
     }
 
-    data class ClickResult(val gain: Double, val crit: Boolean, val combo: Int, val fever: Boolean)
+    data class ClickResult(
+        val gain: Double,
+        val crit: Boolean,
+        val combo: Int,
+        val fever: Boolean,
+        val echo: Boolean,
+        val prize: String?,
+        val goldenSpawned: Boolean,
+    )
 
     fun click(auto: Boolean = false): ClickResult {
         val now = System.currentTimeMillis()
         var feverStarted = false
+        var prize: String? = null
         if (!auto) {
-            combo = if (now - lastClickMs < 450) (combo + 1).coerceAtMost(6767) else 1
+            combo = if (now - lastClickMs < comboWindowMs) (combo + 1).coerceAtMost(6767) else 1
             lastClickMs = now
             totalClicks++
             if (combo > maxCombo) maxCombo = combo
             if (combo % 67 == 0) {
-                feverEnd = now + FEVER_DURATION
+                feverEnd = now + if (hammamHas(11)) FEVER_DURATION * 2 else FEVER_DURATION
                 clock = now
                 feverStarted = true
             }
+            if (hammamHas(1)) temperature = (temperature + 0.7f).coerceAtMost(maxTemperature)
+            if (!ultraBablo && ultraCharge < ULTRA_CHARGE) {
+                val step = (if (has(Perk.ACCU)) 2 else 1) * (if (hammamHas(10)) 2 else 1)
+                ultraCharge = (ultraCharge + step).coerceAtMost(ULTRA_CHARGE)
+            }
+            if (has(Perk.ROULETTE) && totalClicks % 67 == 0) prize = spinRoulette()
         }
-        val crit = Random.nextFloat() < critChance
+        val crit = !auto && Random.nextFloat() < critChance
+        val echo = !auto && has(Perk.ECHO) && Random.nextFloat() < 0.1f
         var gain = perClick * (1.0 + comboBonus)
-        if (crit) gain *= 10.0
-        if (auto) gain *= 0.5
+        if (crit) gain *= critMult
+        if (echo) gain *= 3.0
+        if (auto) gain = gain * 0.5 + if (has(Perk.RESONANCE)) perSecond * 0.5 else 0.0
         earn(gain)
-        return ClickResult(gain, crit, combo, feverStarted)
+        var spawned = false
+        if (crit && has(Perk.SHAWARMA_CRIT) && golden == null && Random.nextFloat() < 0.03f) {
+            spawnGolden(now)
+            spawned = true
+        }
+        return ClickResult(gain, crit, combo, feverStarted, echo, prize, spawned)
+    }
+
+    private fun spinRoulette(): String = when (Random.nextInt(3)) {
+        0 -> {
+            if (golden == null) spawnGolden(System.currentTimeMillis())
+            "🎰 Золотой мешок!"
+        }
+        1 -> {
+            combo += 20
+            "🎰 Комбо +20!"
+        }
+        else -> {
+            val x = perSecond * 60 + perClick * 67
+            earn(x)
+            "🎰 +${formatBablo(x)}"
+        }
     }
 
     // ---------- Золотой мешок ----------
@@ -295,56 +537,83 @@ class BabloGame(context: Context) {
         golden = null
         goldenCaught++
         scheduleGolden()
-        val luck = 1.0 + 0.5 * level(Upgrade.LUCK)
         return if (Random.nextBoolean()) {
-            frenzyEnd = System.currentTimeMillis() + (15_000 * luck).toLong()
-            GoldenReward("БАБЛО-БЕЗУМИЕ x7!", 0.0)
+            frenzyEnd = System.currentTimeMillis() + 30_000
+            GoldenReward("БАБЛО-БЕЗУМИЕ x7 на 30 сек!", 0.0)
         } else {
-            val amount = (perSecond * 67 + perClick * 67) * luck
+            val amount = minOf(money * 0.15, (perSecond + perClick * 5) * 900) + 13
             earn(amount)
             GoldenReward("БАБЛО-ФОНТАН +${formatBablo(amount)}", amount)
         }
     }
 
+    private fun spawnGolden(now: Long) {
+        val life = if (has(Perk.MAGNET)) 15_000L else 9_000L
+        golden = GoldenBag(0.1f + Random.nextFloat() * 0.75f, 0.25f + Random.nextFloat() * 0.5f, now + life)
+    }
+
     private fun scheduleGolden() {
-        val base = 40_000 + Random.nextLong(60_000)
-        nextGoldenAt = System.currentTimeMillis() + (base / (1.0 + 0.25 * level(Upgrade.LUCK))).toLong()
+        var delay = 60_000.0 + Random.nextDouble(120_000.0)
+        if (has(Perk.MAGNET)) delay /= 1.5
+        if (hammamHas(5)) delay /= 2
+        nextGoldenAt = System.currentTimeMillis() + delay.toLong()
     }
 
     // ---------- Вывод (престиж) ----------
 
     val canWithdraw get() = money >= WITHDRAW_MIN
-    val withdrawProgress: Float get() = (money / WITHDRAW_MIN).toFloat().coerceIn(0f, 1f)
+    val withdrawProgress: Float get() = (log10(money.coerceAtLeast(1.0)) / log10(WITHDRAW_MIN)).toFloat().coerceIn(0f, 1f)
     val tokensForWithdraw: Long get() = if (!canWithdraw) 0 else 1 + floor(log10(money / WITHDRAW_MIN)).toLong()
 
-    /** Выводит всё бабло, сбрасывает улучшения кнопки и выдаёт жетоны 67. Хаммам остаётся. */
+    /** Выводит всё бабло, сбрасывает генераторы и улучшения кнопки и выдаёт жетоны 67. Хаммам остаётся. */
     fun withdraw(): Long {
         if (!canWithdraw) return 0
         val gained = tokensForWithdraw
         tokens += gained
         withdrawals++
         money = 0.0
-        levels.values.forEach { it.intValue = 0 }
+        ultraCharge = 0
+        gens.values.forEach { it.intValue = 0 }
+        ownedPerks.clear()
         return gained
     }
 
     // ---------- Тик ----------
 
-    /** Возвращает количество турбо-бульков, которые надо отрисовать за этот кадр. */
-    fun tick(dtSec: Double): Int {
+    data class TickResult(val bulks: Int, val boiled: Double)
+
+    fun tick(dtSec: Double): TickResult {
         val now = System.currentTimeMillis()
         if (now - clock >= 100) clock = now
-        if (now - lastClickMs > 900 && combo > 0) combo = 0
+        if (now - lastClickMs > comboGraceMs && combo > 0) combo = 0
 
         autoAcc += perSecond * dtSec
-        if (autoAcc >= 1.0) {
+        if (autoAcc >= 1.0 || autoAcc > perSecond * 0.2) {
             earn(autoAcc)
             autoAcc = 0.0
         }
 
+        if (hammamHas(1)) {
+            val floorTemp = if (hammamHas(13)) 67f else 0f
+            val decay = if (hammamHas(2)) 2f else 4f
+            if (temperature > floorTemp) temperature = (temperature - decay * dtSec.toFloat()).coerceAtLeast(floorTemp)
+        }
+
+        var boiled = 0.0
+        if (hammamHas(6) && temperature >= 90f) {
+            boilAcc += dtSec
+            if (boilAcc >= 10.0) {
+                boilAcc = 0.0
+                boiled = perSecond * 10
+                earn(boiled)
+            }
+        } else {
+            boilAcc = 0.0
+        }
+
         val g = golden
         if (g == null && now >= nextGoldenAt) {
-            golden = GoldenBag(0.1f + Random.nextFloat() * 0.8f, 0.25f + Random.nextFloat() * 0.5f, now + 9_000)
+            spawnGolden(now)
         } else if (g != null && now > g.expiresAt) {
             golden = null
             scheduleGolden()
@@ -361,15 +630,19 @@ class BabloGame(context: Context) {
             }
         }
 
-        if (!turbo) return 0
-        turboAcc += TURBO_RATE * dtSec
-        val bulks = turboAcc.toInt()
-        turboAcc -= bulks
-        return bulks
+        var bulks = 0
+        if (turbo) {
+            turboAcc += TURBO_RATE * dtSec
+            bulks = turboAcc.toInt()
+            turboAcc -= bulks
+        }
+        return TickResult(bulks, boiled)
     }
 
     fun save() {
         prefs.edit().apply {
+            putInt("version", SAVE_VERSION)
+            putLong("lastSeen", System.currentTimeMillis())
             putLong("money", money.toRawBits())
             putLong("earned", totalEarned.toRawBits())
             putInt("clicks", totalClicks)
@@ -379,24 +652,31 @@ class BabloGame(context: Context) {
             putLong("tokens", tokens)
             putInt("withdrawals", withdrawals)
             putInt("golden", goldenCaught)
-            putBoolean("ultra", ultraBablo)
+            putInt("ultraCharge", ultraCharge)
+            putInt("ultraUses", ultraUses)
+            putFloat("temp", temperature)
             putBoolean("sound", soundOn)
             putBoolean("vibration", vibrationOn)
             putString("skin", skin.name)
             putStringSet("skins", ownedSkins.map { it.name }.toSet())
+            putStringSet("perks", ownedPerks.map { it.name }.toSet())
             putStringSet("achievements", unlocked.map { it.name }.toSet())
             putLong("turboEnd", turboEnd)
             putLong("turboReady", turboReady)
             putLong("m67End", m67End)
             putLong("m67Ready", m67Ready)
-            levels.forEach { (u, s) -> putInt("lvl_${u.name}", s.intValue) }
+            putLong("ultraEnd", ultraEnd)
+            gens.forEach { (g, s) -> putInt("gen_${g.name}", s.intValue) }
         }.apply()
     }
 
     companion object {
+        const val SAVE_VERSION = 3
+        const val GEN_GROWTH = 1.15
         const val TURBO_RATE = 12.0
-        const val MODE67_DURATION = 67_000L
         const val FEVER_DURATION = 6_700L
+        const val ULTRA_CHARGE = 1000
+        const val ULTRA_DURATION = 30_000L
 
         /** 68 квинтиллиардов = 68 × 10^33. */
         const val WITHDRAW_MIN = 6.8e34
@@ -413,6 +693,9 @@ class BabloGame(context: Context) {
         )
     }
 }
+
+private fun <T : Enum<T>> namesToEntries(names: Set<String>?, entries: List<T>): List<T> =
+    names.orEmpty().mapNotNull { n -> entries.firstOrNull { it.name == n } }
 
 private val UNITS = listOf(
     "К", "М", "Млрд", "Трлн", "Квдрлн", "Квнтлн", "Скстлн", "Сптлн", "Октлн", "Нонлн", "Квнтлрд",

@@ -23,6 +23,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -50,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-private val TABS = listOf("🛒 Кнопка", "🧖 Хаммам", "🎨 Скины", "🏆 Ачивки", "📊 Стата")
+private val TABS = listOf("🏭 Бизнес", "👆 Кнопка", "🧖 Хаммам", "🎨 Скины", "🏆 Ачивки", "📊 Стата")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,10 +82,11 @@ fun BabloSheet(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             when (tab) {
-                0 -> items(Upgrade.entries) { UpgradeRow(game, it, onBuy) }
-                1 -> hammamTab(game, onHammamUp, onDenied)
-                2 -> items(Skin.entries) { SkinRow(game, it, onBuy) }
-                3 -> {
+                0 -> businessTab(game, onBuy)
+                1 -> perksTab(game, onBuy)
+                2 -> hammamTab(game, onHammamUp, onDenied)
+                3 -> items(Skin.entries) { SkinRow(game, it, onBuy) }
+                4 -> {
                     item {
                         Text(
                             "Открыто ${game.unlocked.size} из ${Achievement.entries.size}",
@@ -99,25 +101,123 @@ fun BabloSheet(
     }
 }
 
-@Composable
-private fun UpgradeRow(game: BabloGame, u: Upgrade, onBuy: () -> Unit) {
-    val lvl = game.level(u)
-    val maxed = lvl >= u.maxLevel
-    ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(u.emoji, fontSize = 32.sp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("${u.title}  ·  ур. $lvl", fontWeight = FontWeight.Bold)
-                Text(u.description, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+@OptIn(ExperimentalMaterial3Api::class)
+private fun LazyListScope.businessTab(game: BabloGame, onBuy: () -> Unit) {
+    item {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Покупать по:", Modifier.weight(1f), color = Color.White.copy(alpha = 0.7f))
+            listOf(1 to "x1", 10 to "x10", 0 to "МАКС").forEach { (n, label) ->
+                FilterChip(
+                    selected = game.buyAmount == n,
+                    onClick = { game.buyAmount = n },
+                    label = { Text(label) },
+                    modifier = Modifier.padding(start = 6.dp),
+                )
             }
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = { if (game.buy(u)) onBuy() },
-                enabled = game.canBuy(u),
-                contentPadding = PaddingValues(horizontal = 14.dp),
+        }
+    }
+    val visible = Gen.entries.filter { game.genVisible(it) }
+    items(visible) { GenRow(game, it, onBuy) }
+    Gen.entries.firstOrNull { !game.genVisible(it) }?.let { next ->
+        item {
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.3f)),
             ) {
-                Text(if (maxed) "МАКС" else formatBablo(game.cost(u)), fontWeight = FontWeight.Bold)
+                Text(
+                    "❓ ???  —  купи «${Gen.entries[next.ordinal - 1].title}», чтобы открыть",
+                    Modifier.padding(16.dp),
+                    color = Color.White.copy(alpha = 0.5f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GenRow(game: BabloGame, g: Gen, onBuy: () -> Unit) {
+    val n = game.count(g)
+    val next = game.nextMilestone(g)
+    ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(g.emoji, fontSize = 32.sp, modifier = Modifier.graphicsLayer { alpha = if (n > 0) 1f else 0.4f })
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("${g.title}  ×$n", fontWeight = FontWeight.Bold)
+                Text(
+                    if (n > 0) "+${formatBablo(game.genEach(g) * n)}/сек · каждый ${formatBablo(game.genEach(g))}"
+                    else g.flavor + " · ${formatBablo(game.genEach(g))}/сек",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.7f),
+                )
+                if (next != null && n > 0) {
+                    Text(
+                        "🎯 ещё ${next - n} до x2 (у тебя x${formatBablo(game.genMilestoneMult(g))})",
+                        fontSize = 11.sp,
+                        color = Color(0xFFFFD600).copy(alpha = 0.8f),
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            Button(
+                onClick = { if (game.buyGen(g)) onBuy() },
+                enabled = game.canBuyGen(g),
+                contentPadding = PaddingValues(horizontal = 10.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(formatBablo(game.genCost(g)), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    if (game.buyAmount != 1) Text("x${game.buyCount(g)}", fontSize = 10.sp)
+                }
+            }
+        }
+    }
+}
+
+private fun LazyListScope.perksTab(game: BabloGame, onBuy: () -> Unit) {
+    val available = Perk.entries.filter { game.perkAvailable(it) }.sortedBy { it.cost }
+    val locked = Perk.entries.filter { !game.has(it) && !game.perkAvailable(it) }
+    val owned = Perk.entries.filter { game.has(it) }
+    item {
+        Text(
+            "Улучшено ${owned.size} из ${Perk.entries.size}. Каждое меняет, как работает кнопка.",
+            color = Color.White.copy(alpha = 0.7f),
+            fontSize = 13.sp,
+        )
+    }
+    items(available) { PerkRow(game, it, onBuy) }
+    items(locked) { p ->
+        Text(
+            "🔒 ${p.emoji} ${p.title} — сначала «${p.requiresPerk?.title}»",
+            color = Color.White.copy(alpha = 0.4f),
+            fontSize = 13.sp,
+        )
+    }
+    if (owned.isNotEmpty()) {
+        item { Text("Куплено", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp)) }
+        items(owned) { p ->
+            Text("✅ ${p.emoji} ${p.title} — ${p.description}", color = Color(0xFFB9F6CA), fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun PerkRow(game: BabloGame, p: Perk, onBuy: () -> Unit) {
+    ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(p.emoji, fontSize = 30.sp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(p.title, fontWeight = FontWeight.Bold)
+                Text(p.description, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+            }
+            Spacer(Modifier.width(6.dp))
+            Button(
+                onClick = { if (game.buyPerk(p)) onBuy() },
+                enabled = game.canBuyPerk(p),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+            ) {
+                Text(formatBablo(p.cost), fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -131,11 +231,21 @@ private fun LazyListScope.hammamTab(game: BabloGame, onUp: () -> Unit, onDenied:
     }
     items(HAMMAM_STAGES.size) { i ->
         val done = i < game.hammamLevel
-        Text(
-            (if (done) "✅ " else "⬜ ") + "${i + 1}. ${HAMMAM_STAGES[i]}" + if (done) "  (x2 бабла, −4% перезарядки)" else "",
-            color = if (done) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.5f),
-            fontSize = 14.sp,
-        )
+        val st = HAMMAM_STAGES[i]
+        Column {
+            Text(
+                (if (done) "✅ " else if (i == game.hammamLevel) "👉 " else "⬜ ") + "${i + 1}. ${st.title}",
+                color = if (done) Color(0xFFFFCC80) else Color.White.copy(alpha = if (i == game.hammamLevel) 0.9f else 0.5f),
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+            )
+            Text(
+                st.perk + " · x1.5 бабла",
+                color = Color.White.copy(alpha = if (done) 0.75f else 0.4f),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 26.dp),
+            )
+        }
     }
 }
 
@@ -210,12 +320,13 @@ private fun HammamUpgradeCard(game: BabloGame, onUp: () -> Unit) {
                 color = Color(0xFFFFCC80),
             )
             Text(
-                if (lvl == 0) "Хаммам не куплен. Но улучшать его никто не запрещал." else "Текущий: ${HAMMAM_STAGES[lvl - 1]}",
+                if (lvl == 0) "Хаммам не куплен. Но улучшать его никто не запрещал." else "Текущий: ${HAMMAM_STAGES[lvl - 1].title}",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.75f),
             )
             Text(
-                "Сейчас: x${formatBablo(Math.pow(2.0, lvl.toDouble()))} бабла, перезарядка режимов −${((1 - game.cooldownFactor) * 100).toInt()}%",
+                "Сейчас: x${formatBablo(Math.pow(1.5, lvl.toDouble()))} бабла" +
+                    if (lvl > 0) ", жар ${game.temperature.toInt()}° из ${game.maxTemperature.toInt()}°" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.75f),
             )
@@ -228,6 +339,14 @@ private fun HammamUpgradeCard(game: BabloGame, onUp: () -> Unit) {
                     .clip(RoundedCornerShape(3.dp)),
                 color = Color(0xFFFFB74D),
             )
+            if (!game.hammamMaxed) {
+                Text(
+                    "Следующий этап: " + HAMMAM_STAGES[lvl].perk,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFFFCC80),
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = { if (game.upgradeHammam()) onUp() },
@@ -235,7 +354,7 @@ private fun HammamUpgradeCard(game: BabloGame, onUp: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    if (game.hammamMaxed) "ХАММАМ АБСОЛЮТЕН" else "Улучшить до «${HAMMAM_STAGES[lvl]}» · ${formatBablo(game.hammamCost)}",
+                    if (game.hammamMaxed) "ХАММАМ АБСОЛЮТЕН" else "«${HAMMAM_STAGES[lvl].title}» · ${formatBablo(game.hammamCost)}",
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -310,9 +429,14 @@ private fun StatsTab(game: BabloGame) {
         "♨️ Уровень хаммама" to "${game.hammamLevel} / ${HAMMAM_STAGES.size}",
         "💳 Выводов" to game.withdrawals.toString(),
         "🎟️ Жетонов 67" to "${game.tokens} (+${(game.tokens * 67)}%)",
+        "🏭 Генераторов" to game.totalGens().toString(),
+        "👆 Улучшений кнопки" to "${game.ownedPerks.size} / ${Perk.entries.size}",
+        "🏆 Ачивки" to "${game.unlocked.size} (+${game.unlocked.size}% бабла)",
+        "♨️ Жар хаммама" to "${game.temperature.toInt()}° / ${game.maxTemperature.toInt()}°",
         "✖️ Общий множитель" to "x" + formatBablo(game.multiplier),
         "⚡ Шанс крита" to "${(game.critChance * 100).toInt()}%",
-        "✊ Скорость зажатия" to "${game.holdRate.toInt()}–${(game.holdRate * 1.5).toInt()} тык/сек",
+        "✊ Скорость зажатия" to "${(game.holdRate * 0.5).toInt()}–${(game.holdRate * 1.5).toInt()} тык/сек",
+        "😴 Оффлайн-доход" to "${(game.offlineRate * 100).toInt()}%",
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         rows.forEach { (k, v) ->
@@ -334,7 +458,7 @@ fun WithdrawDialog(game: BabloGame, onDismiss: () -> Unit, onWithdraw: () -> Uni
             Column {
                 Text("Минимальная сумма вывода — 68 квинтиллиардов бабла (68 × 10³³).")
                 Spacer(Modifier.height(8.dp))
-                Text("У тебя: ${formatBablo(game.money)} (${"%.4f".format(game.withdrawProgress * 100)}%)")
+                Text("У тебя: ${formatBablo(game.money)} · прогресс по нулям ${(game.withdrawProgress * 100).toInt()}%")
                 Spacer(Modifier.height(8.dp))
                 if (game.canWithdraw) {
                     Text(

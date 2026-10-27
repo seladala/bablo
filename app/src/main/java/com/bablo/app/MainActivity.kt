@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -230,6 +231,19 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
             fx.floatingText(buttonCenter, "КОМБО x${r.combo} 🔥", Color(0xFFFF9100), big = true)
             fx.sparks(buttonCenter, 40, Color(0xFFFF9100))
         }
+        if (r.echo) {
+            for (i in 1..3) fx.ring(at, Color(0xFF80D8FF), buttonRadius * (0.6f + 0.5f * i), 0.4f + 0.2f * i, 8f)
+            fx.floatingText(at, "🔁 ЭХО x3", Color(0xFF80D8FF))
+        }
+        r.prize?.let {
+            fx.floatingText(buttonCenter, it, Color(0xFFFFD600), big = true)
+            fx.confetti(buttonCenter, 40)
+            sound.play(Sfx.GOLDEN)
+        }
+        if (r.goldenSpawned) fx.floatingText(at, "🌯 Шаурма-крит!", Color(0xFFFFD600), big = true)
+        if (game.hammamLevel > 0 && Random.nextInt(4) == 0) {
+            fx.bubble(at, buttonRadius * 0.3f)
+        }
     }
 
     // Игровой цикл: автобабло, турбо-бульки, зажатие, дождь, частицы.
@@ -243,7 +257,14 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
             withFrameNanos { now ->
                 val dt = if (last == 0L) 0f else ((now - last) / 1e9f).coerceAtMost(0.1f)
                 last = now
-                repeat(game.tick(dt.toDouble())) {
+                val tr = game.tick(dt.toDouble())
+                if (tr.boiled > 0) {
+                    fx.burst(buttonCenter, listOf("♨️", "💨", "🫧", "💰"), 18, 1f)
+                    fx.floatingText(buttonCenter, "♨️ Кипение +${formatBablo(tr.boiled)}", Color(0xFFFFCC80), big = true)
+                    fx.ring(buttonCenter, Color(0xFFFF7043), buttonRadius * 2f, 0.7f, 18f)
+                    sound.play(Sfx.HAMMAM, volume = 0.5f)
+                }
+                repeat(tr.bulks) {
                     val r = game.click(auto = true)
                     fx.bubble(buttonCenter, buttonRadius)
                     fx.bubble(buttonCenter, buttonRadius)
@@ -347,6 +368,10 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
         ) {
             Spacer(Modifier.height(8.dp))
             StatsPanel(game, onWithdraw = { showWithdraw = true })
+            if (game.hammamLevel > 0) {
+                Spacer(Modifier.height(6.dp))
+                Thermometer(game)
+            }
             Spacer(Modifier.height(10.dp))
             ModesRow(
                 game,
@@ -403,37 +428,11 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                 }
             }
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { sheetTab = 0 },
-                    modifier = Modifier
-                        .weight(1.4f)
-                        .height(54.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                ) {
-                    Text("🛒 Улучшения", fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                }
-                FilledTonalButton(
-                    onClick = { sheetTab = 1 },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(54.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                ) {
-                    Text("🧖 Хаммам", fontWeight = FontWeight.Bold, maxLines = 1)
-                }
-                FilledTonalButton(
-                    onClick = { sheetTab = 2 },
-                    modifier = Modifier
-                        .weight(0.6f)
-                        .height(54.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp),
-                ) {
-                    Text("⭐", fontSize = 20.sp)
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                BottomTab("🏭", "Бизнес", primary = true, Modifier.weight(1f)) { sheetTab = 0 }
+                BottomTab("👆", "Кнопка", primary = true, Modifier.weight(1f)) { sheetTab = 1 }
+                BottomTab("🧖", "Хаммам", primary = false, Modifier.weight(1f)) { sheetTab = 2 }
+                BottomTab("⭐", "Ещё", primary = false, Modifier.weight(0.8f)) { sheetTab = 3 }
             }
             Spacer(Modifier.height(10.dp))
         }
@@ -513,6 +512,27 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                 }
             },
             onDenied = { sound.play(Sfx.DENIED, volume = 0.6f) },
+        )
+    }
+
+    game.offlineGain?.let { gain ->
+        AlertDialog(
+            onDismissRequest = { game.offlineGain = null },
+            icon = { Text("😴", fontSize = 36.sp) },
+            title = { Text("Пока тебя не было…") },
+            text = {
+                Text(
+                    "Генераторы натыкали +${formatBablo(gain)} бабла " +
+                        "(${(game.offlineRate * 100).toInt()}% от обычного дохода, максимум 8 часов).",
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    game.offlineGain = null
+                    fx.burst(buttonCenter, MONEY_EMOJI, 30, 1.3f)
+                    sound.play(Sfx.BUY)
+                }) { Text("Забрать 💰") }
+            },
         )
     }
 
@@ -635,6 +655,7 @@ private fun StatsPanel(game: BabloGame, onWithdraw: () -> Unit) {
                     if (game.tokens > 0) {
                         Text("🎟️ ${game.tokens} жетонов 67 ", fontSize = 12.sp, color = Color(0xFFFFD600))
                     }
+                    if (game.ultraBablo) Text("👑 x5 ", fontSize = 12.sp, color = Color(0xFFFFD600), fontWeight = FontWeight.Bold)
                     if (game.frenzy) Text("🤪 БЕЗУМИЕ x7 ", fontSize = 12.sp, color = Color(0xFFFFD600), fontWeight = FontWeight.Bold)
                     if (game.combo > 1) {
                         Text(
@@ -687,7 +708,7 @@ private fun ModesRow(game: BabloGame, onToggle: (List<String>, Color) -> Unit, o
             emoji = "6️⃣7️⃣", title = "Режим 67", status = m67Status,
             active = game.mode67, ready = !game.mode67 && game.mode67ReadyInMs == 0L,
             progress = when {
-                game.mode67 -> game.mode67LeftMs / BabloGame.MODE67_DURATION.toFloat()
+                game.mode67 -> game.mode67LeftMs / game.mode67DurationMs.toFloat()
                 else -> 1f - game.mode67ReadyInMs / game.mode67CooldownMs.toFloat()
             },
             modifier = Modifier.weight(1f),
@@ -695,12 +716,18 @@ private fun ModesRow(game: BabloGame, onToggle: (List<String>, Color) -> Unit, o
             if (game.activate67()) onToggle(listOf("6️⃣", "7️⃣"), Color(0xFFB388FF)) else onDenied()
         }
         ModeCard(
-            emoji = "👑", title = "Ультра-бабло", status = if (game.ultraBablo) "ВКЛ · x10" else "ВЫКЛ",
-            active = game.ultraBablo, ready = !game.ultraBablo, progress = if (game.ultraBablo) 1f else 0f,
+            emoji = "👑", title = "Ультра-бабло",
+            status = when {
+                game.ultraBablo -> "⏳ ${formatTime(game.ultraLeftMs)}"
+                game.ultraReady -> "ГОТОВ!"
+                else -> "⚡ ${game.ultraCharge}/${BabloGame.ULTRA_CHARGE}"
+            },
+            active = game.ultraBablo, ready = game.ultraReady,
+            progress = if (game.ultraBablo) game.ultraLeftMs / BabloGame.ULTRA_DURATION.toFloat()
+            else game.ultraCharge / BabloGame.ULTRA_CHARGE.toFloat(),
             modifier = Modifier.weight(1f),
         ) {
-            game.ultraBablo = !game.ultraBablo
-            if (game.ultraBablo) onToggle(ULTRA_EMOJI, Color(0xFFFFD600))
+            if (game.activateUltra()) onToggle(ULTRA_EMOJI, Color(0xFFFFD600)) else onDenied()
         }
         val turboStatus = when {
             game.turbo -> "⏳ ${formatTime(game.turboLeftMs)}"
@@ -905,5 +932,57 @@ private fun UltimateButton(game: BabloGame, palette: Palette, pressed: Boolean, 
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BottomTab(emoji: String, label: String, primary: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val content: @Composable () -> Unit = {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(emoji, fontSize = 18.sp)
+            Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+    val shape = RoundedCornerShape(18.dp)
+    val pad = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+    if (primary) {
+        Button(onClick = onClick, modifier = modifier.height(58.dp), shape = shape, contentPadding = pad) { content() }
+    } else {
+        FilledTonalButton(onClick = onClick, modifier = modifier.height(58.dp), shape = shape, contentPadding = pad) { content() }
+    }
+}
+
+@Composable
+private fun Thermometer(game: BabloGame) {
+    val t = game.temperature
+    val frac = (t / game.maxTemperature).coerceIn(0f, 1f)
+    val color = when {
+        t >= 90f -> Color(0xFFFF1744)
+        t >= 67f -> Color(0xFFFF6D00)
+        else -> Color(0xFFFFB74D)
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Black.copy(alpha = 0.3f))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("♨️ ${t.toInt()}°", fontWeight = FontWeight.Bold, color = color, fontSize = 13.sp, modifier = Modifier.width(64.dp))
+        LinearProgressIndicator(
+            progress = { frac },
+            modifier = Modifier
+                .weight(1f)
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp)),
+            color = color,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "тык x${"%.2f".format(game.tempMult)}" + if (game.hammamHas(6) && t >= 90f) " · КИПИТ" else "",
+            fontSize = 12.sp,
+            color = Color.White.copy(alpha = 0.8f),
+        )
     }
 }
