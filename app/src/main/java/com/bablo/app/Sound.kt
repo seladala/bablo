@@ -12,7 +12,7 @@ import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.random.Random
 
-enum class Sfx { COIN, CRIT, BUBBLE, BUY, DENIED, SIX_SEVEN, GOLDEN, FEVER, WITHDRAW, MODE, ACHIEVEMENT, HAMMAM }
+enum class Sfx { COIN, CRIT, BUBBLE, BUY, DENIED, SIX_SEVEN, GOLDEN, FEVER, WITHDRAW, MODE, ACHIEVEMENT, HAMMAM, POP, ULTRA, ULTRA_SUPER }
 
 private const val SR = 22050
 private const val TWO_PI = (2 * PI).toFloat()
@@ -119,6 +119,26 @@ private fun synth(s: Sfx): FloatArray {
         Sfx.ACHIEVEMENT -> gen(0.6f) { t ->
             note(t, 0f, 0.1f, 523.3f, 8f) * 0.4f + note(t, 0.09f, 0.1f, 659.3f, 8f) * 0.4f +
                 note(t, 0.18f, 0.1f, 784f, 8f) * 0.4f + note(t, 0.27f, 0.33f, 1046.5f, 5f) * 0.5f
+        }
+        Sfx.POP -> gen(0.09f) { t ->
+            // лопнувший пузырь: короткий щелчок + писк вверх
+            val click = (rnd.nextFloat() * 2f - 1f) * exp(-t * 120f) * 0.6f
+            click + sin(TWO_PI * (600f * t + 9000f * t * t)) * exp(-t * 35f) * 0.5f
+        }
+        Sfx.ULTRA -> gen(1.0f) { t ->
+            // нарастающий аккорд мажор + удар
+            val boom = sin(TWO_PI * (90f - 60f * t) * t) * exp(-t * 5f) * 0.6f
+            boom + note(t, 0f, 1f, 523.3f, 2.5f) * 0.25f + note(t, 0.08f, 0.92f, 659.3f, 2.5f) * 0.25f +
+                note(t, 0.16f, 0.84f, 784f, 2.5f) * 0.25f + note(t, 0.24f, 0.76f, 1046.5f, 2.5f, ::square) * 0.12f
+        }
+        Sfx.ULTRA_SUPER -> gen(1.6f) { t ->
+            // сирена-свип + арпеджио 6-7 по кругу
+            val sweep = sin(TWO_PI * (300f * t + 700f * t * t)) * 0.25f * (0.6f + 0.4f * sin(TWO_PI * 12f * t))
+            val step = (t / 0.1f).toInt()
+            val f = if (step % 2 == 0) 783.99f * (1f + 0.06f * (step / 2)) else 1046.5f * (1f + 0.06f * (step / 2))
+            val arp = square(f, t) * 0.12f * exp(-(t - step * 0.1f) * 12f)
+            val boom = sin(TWO_PI * 60f * t) * exp(-t * 3f) * 0.5f
+            (sweep + arp + boom) * (if (t > 1.4f) (1.6f - t) / 0.2f else 1f)
         }
         Sfx.HAMMAM -> gen(0.9f) { t ->
             // шипение пара + низкий гонг

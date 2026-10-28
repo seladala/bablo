@@ -437,6 +437,8 @@ private fun StatsTab(game: BabloGame) {
         "⚡ Шанс крита" to "${(game.critChance * 100).toInt()}%",
         "✊ Скорость зажатия" to "${(game.holdRate * 0.5).toInt()}–${(game.holdRate * 1.5).toInt()} тык/сек",
         "😴 Оффлайн-доход" to "${(game.offlineRate * 100).toInt()}%",
+        "🫧 Пузырей поймано" to "${game.bubblesPopped} (лучшая серия ${game.bestBubbleStreak})",
+        "👑 Ультра / 🌈 Ультра супер" to "${game.ultraUses} / ${game.ultraSuperUses}",
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         rows.forEach { (k, v) ->

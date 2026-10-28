@@ -62,13 +62,13 @@ enum class Perk(
     SIZE("🟢", "Ультимативный размер", "Кнопка больше, тык x2", 6.7e4),
     COMBO("🔥", "Комбо-мастер", "Комбо +2% за тык (вместо 1%) и прощает паузы", 1e5),
     ECHO("🔁", "Эхо-тык", "10% шанс, что тык отзовётся эхом x3", 3e5),
-    LONG_BUL("🫧", "Долгий буль", "Турбо-выбулькиватель работает на 15 сек дольше", 1e6),
+    LONG_BUL("🫧", "Долгий буль", "Турбо-выбулькиватель работает на 15 сек дольше и пускает больше пузырей", 1e6),
     SHARP("🔪", "Острый крит", "Крит x25 вместо x10", 2e6, "CRIT"),
     MAGNET("🧲", "Магнит мешков", "Золотые мешки чаще и живут дольше", 5e6),
-    ACCU("🔋", "Ультра-аккумулятор", "Ультра-бабло заряжается вдвое быстрее", 1e7),
+    ACCU("🔋", "Ультра-аккумулятор", "Ультра-бабло включается от удержания вдвое быстрее", 1e7),
     PCT2("💹", "Тык с двумя процентами", "Ещё +2% дохода/сек к тыку", 5e7, "PCT1"),
     GOLD67("👑", "Золотая кнопка 67", "Тык x6.7", 6.7e7, "SIZE"),
-    RESONANCE("🫧", "Буль-резонанс", "Каждый буль приносит ещё полсекунды дохода", 1e8, "LONG_BUL"),
+    RESONANCE("🫧", "Буль-резонанс", "Каждый пойманный пузырь приносит ещё 3 сек дохода", 1e8, "LONG_BUL"),
     MANIA("🎯", "Крит-мания", "Шанс крита +7%", 5e8, "SHARP"),
     SHAWARMA_CRIT("🌯", "Шаурма-крит", "3% критов выбивают золотой мешок", 5e9, "MANIA"),
     SIXTH_SENSE("6️⃣", "Шестьдесят седьмое чувство", "Режим 67 длится вдвое дольше", 6.7e9),
@@ -92,7 +92,7 @@ val HAMMAM_STAGES = listOf(
     HammamStage("Пар 67°", "Перезарядка режима 67 на треть короче"),
     HammamStage("Хрустальный купол", "Максимальный жар 150°"),
     HammamStage("Королевская пена", "Комбо не сгорает 2 сек"),
-    HammamStage("Ультра-пар", "Ультра-бабло заряжается вдвое быстрее"),
+    HammamStage("Ультра-пар", "Ультра-бабло и ультра супер бабло включаются вдвое быстрее"),
     HammamStage("Хаммам 6-7", "Лихорадка ULTRA 6-7 длится вдвое дольше"),
     HammamStage("Космический хаммам", "Оффлайн-доход 50% вместо 10%"),
     HammamStage("Хаммам вечности", "Жар никогда не падает ниже 67°"),
@@ -134,7 +134,10 @@ enum class Achievement(val emoji: String, val title: String, val description: St
     HAMMAM_UP("🧖", "Пар пошёл", "Улучшить хаммам (не покупая!)", { it.hammamLevel >= 1 }),
     HAMMAM_HOT("🌡️", "Жарко!", "Разогреть хаммам до 100°", { it.temperature >= 100f }),
     HAMMAM_MAX("👑", "Хозяин пара", "Хаммам на максимум", { it.hammamLevel >= HAMMAM_STAGES.size }),
-    ULTRA("⚡", "Заряжено", "Включить ультра-бабло", { it.ultraUses >= 1 }),
+    ULTRA("⚡", "Не отпускай", "Удержать кнопку до ультра-бабло", { it.ultraUses >= 1 }),
+    ULTRA_SUPER("🌈", "УЛЬТРА СУПЕР", "Включить ультра супер бабло", { it.ultraSuperUses >= 1 }),
+    BUBBLES("🫧", "Ловец пузырей", "Поймать 67 пузырей", { it.bubblesPopped >= 67 }),
+    BUBBLE_STREAK("🎯", "Ни одного мимо", "Серия из 25 пузырей подряд", { it.bestBubbleStreak >= 25 }),
     GOLDEN("✨", "Золотая рука", "Поймать золотой мешок", { it.goldenCaught >= 1 }),
     GOLDEN_25("🌟", "Ловец мешков", "Поймать 25 золотых мешков", { it.goldenCaught >= 25 }),
     SKIN("🎨", "Модник", "Купить скин кнопки", { it.ownedSkins.size >= 2 }),
@@ -183,9 +186,13 @@ class BabloGame(context: Context) {
         private set
     var goldenCaught by mutableIntStateOf(prefs.getInt("golden", 0))
         private set
-    var ultraCharge by mutableIntStateOf(prefs.getInt("ultraCharge", 0))
-        private set
     var ultraUses by mutableIntStateOf(prefs.getInt("ultraUses", 0))
+        private set
+    var ultraSuperUses by mutableIntStateOf(prefs.getInt("ultraSuperUses", 0))
+        private set
+    var bubblesPopped by mutableIntStateOf(prefs.getInt("bubbles", 0))
+        private set
+    var bestBubbleStreak by mutableIntStateOf(prefs.getInt("bubbleStreak", 0))
         private set
     var temperature by mutableFloatStateOf(prefs.getFloat("temp", 0f))
         private set
@@ -221,6 +228,10 @@ class BabloGame(context: Context) {
     private var m67End by mutableLongStateOf(prefs.getLong("m67End", 0L))
     private var m67Ready by mutableLongStateOf(prefs.getLong("m67Ready", 0L))
     private var ultraEnd by mutableLongStateOf(prefs.getLong("ultraEnd", 0L))
+    private var ultraStart = prefs.getLong("ultraStart", 0L)
+    private var ultraReadyAt by mutableLongStateOf(prefs.getLong("ultraReady", 0L))
+    private var superEnd by mutableLongStateOf(prefs.getLong("superEnd", 0L))
+    private var superUsedThisUltra = prefs.getBoolean("superUsed", false)
     private var feverEnd by mutableLongStateOf(0L)
     private var frenzyEnd by mutableLongStateOf(0L)
 
@@ -384,19 +395,78 @@ class BabloGame(context: Context) {
         return true
     }
 
-    /** Ультра-бабло: копится ручными тыками, потом 30 сек x5. */
+    /**
+     * Ультра-бабло нельзя включить кнопкой: оно включается само, если долго держать БАБЛО.
+     * А если держать и дальше, пока оно работает — включается ультра супер бабло.
+     */
     val ultraBablo: Boolean get() = clock < ultraEnd
+    val ultraSuper: Boolean get() = clock < superEnd
     val ultraLeftMs: Long get() = (ultraEnd - clock).coerceAtLeast(0)
-    val ultraReady: Boolean get() = !ultraBablo && ultraCharge >= ULTRA_CHARGE
+    val superLeftMs: Long get() = (superEnd - clock).coerceAtLeast(0)
+    val ultraReadyInMs: Long get() = (ultraReadyAt - clock).coerceAtLeast(0)
 
-    fun activateUltra(): Boolean {
-        if (!ultraReady) return false
+    private val holdSpeed: Int get() = (if (has(Perk.ACCU)) 2 else 1) * (if (hammamHas(10)) 2 else 1)
+    val ultraHoldMs: Long get() = ULTRA_HOLD / holdSpeed
+    val superHoldMs: Long get() = SUPER_HOLD / holdSpeed
+
+    enum class HoldEvent { NONE, ULTRA, SUPER }
+
+    /** Сколько осталось держать: 0..1 для шкалы на кнопке. */
+    fun holdProgress(pressStart: Long, pressed: Boolean): Float {
+        if (!pressed) return 0f
         val now = System.currentTimeMillis()
-        ultraEnd = now + ULTRA_DURATION
-        ultraCharge = 0
-        ultraUses++
-        clock = now
-        return true
+        return when {
+            ultraBablo && !superUsedThisUltra ->
+                (now - maxOf(pressStart, ultraStart)).toFloat() / superHoldMs
+            !ultraBablo && now >= ultraReadyAt -> (now - pressStart).toFloat() / ultraHoldMs
+            else -> 0f
+        }.coerceIn(0f, 1f)
+    }
+
+    /** Вызывается каждый кадр, пока кнопка зажата. */
+    fun onHold(pressStart: Long): HoldEvent {
+        val now = System.currentTimeMillis()
+        if (!ultraBablo && now >= ultraReadyAt && now - pressStart >= ultraHoldMs) {
+            ultraStart = now
+            ultraEnd = now + ULTRA_DURATION
+            ultraReadyAt = ultraEnd + ULTRA_COOLDOWN
+            superUsedThisUltra = false
+            ultraUses++
+            clock = now
+            return HoldEvent.ULTRA
+        }
+        if (ultraBablo && !superUsedThisUltra && now - maxOf(pressStart, ultraStart) >= superHoldMs) {
+            superUsedThisUltra = true
+            superEnd = minOf(now + SUPER_DURATION, ultraEnd + SUPER_DURATION)
+            ultraEnd = maxOf(ultraEnd, superEnd)
+            ultraReadyAt = ultraEnd + ULTRA_COOLDOWN
+            ultraSuperUses++
+            clock = now
+            return HoldEvent.SUPER
+        }
+        return HoldEvent.NONE
+    }
+
+    // ---------- Пузыри турбо-выбулькивателя ----------
+
+    var bubbleStreak by mutableIntStateOf(0)
+        private set
+
+    /** Пойманный пузырь. Золотой — в 5 раз жирнее. */
+    fun popBubble(goldenBubble: Boolean): Double {
+        bubblesPopped++
+        bubbleStreak++
+        if (bubbleStreak > bestBubbleStreak) bestBubbleStreak = bubbleStreak
+        var gain = perClick * 4 * (1.0 + 0.1 * bubbleStreak.coerceAtMost(30))
+        if (has(Perk.RESONANCE)) gain += perSecond * 3
+        if (goldenBubble) gain *= 5
+        earn(gain)
+        return gain
+    }
+
+    /** Пузырь улетел — серия сгорает. */
+    fun missBubble() {
+        bubbleStreak = 0
     }
 
     /** ULTRA 6-7 лихорадка: включается на каждом комбо, кратном 67. */
@@ -421,7 +491,7 @@ class BabloGame(context: Context) {
         get() {
             var m = baseMultiplier()
             if (mode67) m *= 6.7
-            if (ultraBablo) m *= 5.0
+            if (ultraSuper) m *= 25.0 else if (ultraBablo) m *= 5.0
             if (fever) m *= feverMult
             if (frenzy) m *= 7.0
             return m
@@ -491,10 +561,6 @@ class BabloGame(context: Context) {
                 feverStarted = true
             }
             if (hammamHas(1)) temperature = (temperature + 0.7f).coerceAtMost(maxTemperature)
-            if (!ultraBablo && ultraCharge < ULTRA_CHARGE) {
-                val step = (if (has(Perk.ACCU)) 2 else 1) * (if (hammamHas(10)) 2 else 1)
-                ultraCharge = (ultraCharge + step).coerceAtMost(ULTRA_CHARGE)
-            }
             if (has(Perk.ROULETTE) && totalClicks % 67 == 0) prize = spinRoulette()
         }
         val crit = !auto && Random.nextFloat() < critChance
@@ -502,7 +568,7 @@ class BabloGame(context: Context) {
         var gain = perClick * (1.0 + comboBonus)
         if (crit) gain *= critMult
         if (echo) gain *= 3.0
-        if (auto) gain = gain * 0.5 + if (has(Perk.RESONANCE)) perSecond * 0.5 else 0.0
+        if (auto) gain *= 0.5
         earn(gain)
         var spawned = false
         if (crit && has(Perk.SHAWARMA_CRIT) && golden == null && Random.nextFloat() < 0.03f) {
@@ -572,7 +638,6 @@ class BabloGame(context: Context) {
         tokens += gained
         withdrawals++
         money = 0.0
-        ultraCharge = 0
         gens.values.forEach { it.intValue = 0 }
         ownedPerks.clear()
         return gained
@@ -580,7 +645,8 @@ class BabloGame(context: Context) {
 
     // ---------- Тик ----------
 
-    data class TickResult(val bulks: Int, val boiled: Double)
+    /** bubbles — сколько пузырей выпустить в этом кадре. */
+    data class TickResult(val bubbles: Int, val boiled: Double)
 
     fun tick(dtSec: Double): TickResult {
         val now = System.currentTimeMillis()
@@ -630,13 +696,13 @@ class BabloGame(context: Context) {
             }
         }
 
-        var bulks = 0
+        var bubbles = 0
         if (turbo) {
-            turboAcc += TURBO_RATE * dtSec
-            bulks = turboAcc.toInt()
-            turboAcc -= bulks
+            turboAcc += (if (has(Perk.LONG_BUL)) TURBO_RATE * 1.5 else TURBO_RATE) * dtSec
+            bubbles = turboAcc.toInt()
+            turboAcc -= bubbles
         }
-        return TickResult(bulks, boiled)
+        return TickResult(bubbles, boiled)
     }
 
     fun save() {
@@ -652,8 +718,14 @@ class BabloGame(context: Context) {
             putLong("tokens", tokens)
             putInt("withdrawals", withdrawals)
             putInt("golden", goldenCaught)
-            putInt("ultraCharge", ultraCharge)
             putInt("ultraUses", ultraUses)
+            putInt("ultraSuperUses", ultraSuperUses)
+            putInt("bubbles", bubblesPopped)
+            putInt("bubbleStreak", bestBubbleStreak)
+            putLong("ultraStart", ultraStart)
+            putLong("ultraReady", ultraReadyAt)
+            putLong("superEnd", superEnd)
+            putBoolean("superUsed", superUsedThisUltra)
             putFloat("temp", temperature)
             putBoolean("sound", soundOn)
             putBoolean("vibration", vibrationOn)
@@ -673,10 +745,13 @@ class BabloGame(context: Context) {
     companion object {
         const val SAVE_VERSION = 3
         const val GEN_GROWTH = 1.15
-        const val TURBO_RATE = 12.0
+        const val TURBO_RATE = 2.5
         const val FEVER_DURATION = 6_700L
-        const val ULTRA_CHARGE = 1000
+        const val ULTRA_HOLD = 6_700L
+        const val SUPER_HOLD = 6_700L
         const val ULTRA_DURATION = 30_000L
+        const val ULTRA_COOLDOWN = 60_000L
+        const val SUPER_DURATION = 15_000L
 
         /** 68 квинтиллиардов = 68 × 10^33. */
         const val WITHDRAW_MIN = 6.8e34

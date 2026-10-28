@@ -59,6 +59,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -83,6 +85,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -129,6 +132,7 @@ class MainActivity : ComponentActivity() {
 data class Palette(val main: Color, val accent: Color, val bgTop: Color, val bgBottom: Color)
 
 fun paletteFor(game: BabloGame) = when {
+    game.ultraSuper -> Palette(Color(0xFFFF4081), Color(0xFF00E5FF), Color(0xFF3A0057), Color(0xFF00243A))
     game.fever -> Palette(Color(0xFFFF1744), Color(0xFFFFEA00), Color(0xFF4A0010), Color(0xFF1A0033))
     game.mode67 && game.ultraBablo -> Palette(Color(0xFFFFD600), Color(0xFFE040FB), Color(0xFF2A0845), Color(0xFF3E2723))
     game.mode67 -> Palette(Color(0xFFB388FF), Color(0xFFFFD600), Color(0xFF1A0033), Color(0xFF0D0D2B))
@@ -174,6 +178,8 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
     var pressed by remember { mutableStateOf(false) }
     var pressStart by remember { mutableLongStateOf(0L) }
     var holdCharge by remember { mutableFloatStateOf(0f) }
+    var ultraProgress by remember { mutableFloatStateOf(0f) }
+    val bubbles = remember { mutableStateListOf<TurboBubble>() }
 
     sound.enabled = game.soundOn
 
@@ -264,17 +270,56 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                     fx.ring(buttonCenter, Color(0xFFFF7043), buttonRadius * 2f, 0.7f, 18f)
                     sound.play(Sfx.HAMMAM, volume = 0.5f)
                 }
-                repeat(tr.bulks) {
-                    val r = game.click(auto = true)
+                // Турбо-выбулькиватель пускает пузыри — их надо ловить
+                val nowMs = System.currentTimeMillis()
+                repeat(tr.bubbles) {
+                    bubbles += TurboBubble(
+                        id = bubbleId++,
+                        x = screenW * (0.08f + Random.nextFloat() * 0.84f),
+                        startY = buttonCenter.y + buttonRadius * (Random.nextFloat() - 0.2f),
+                        born = nowMs,
+                        speed = screenH * (0.16f + Random.nextFloat() * 0.12f),
+                        golden = Random.nextInt(10) == 0,
+                        sizeDp = 54f + Random.nextFloat() * 26f,
+                        wobble = 1.5f + Random.nextFloat() * 2f,
+                    )
                     fx.bubble(buttonCenter, buttonRadius)
-                    fx.bubble(buttonCenter, buttonRadius)
-                    sound.play(Sfx.BUBBLE, rate = 0.8f + Random.nextFloat() * 0.6f, volume = 0.35f)
-                    if (Random.nextInt(4) == 0) {
-                        fx.floatingText(buttonCenter, "буль +${formatBablo(r.gain)}", Color(0xFF80D8FF))
-                    }
+                    sound.play(Sfx.BUBBLE, rate = 0.8f + Random.nextFloat() * 0.6f, volume = 0.3f)
                 }
+                val escaped = bubbles.filter { it.y(nowMs) < -200f }
+                if (escaped.isNotEmpty()) {
+                    bubbles.removeAll(escaped)
+                    if (game.bubbleStreak > 0) {
+                        fx.floatingText(Offset(screenW / 2, 160f), "Пузырь улетел 💨 серия сгорела", Color(0xFF80D8FF))
+                    }
+                    game.missBubble()
+                }
+                if (!game.turbo && bubbles.isNotEmpty() && bubbles.all { nowMs - it.born > 6000 }) bubbles.clear()
                 // Зажатие кнопки = ручной турбо
                 val heldMs = System.currentTimeMillis() - pressStart
+                ultraProgress = game.holdProgress(pressStart, pressed)
+                if (pressed) {
+                    when (game.onHold(pressStart)) {
+                        BabloGame.HoldEvent.ULTRA -> {
+                            fx.burst(buttonCenter, ULTRA_EMOJI, 60, 2f)
+                            fx.ring(buttonCenter, Color(0xFFFFD600), screenW * 1.3f, 1f, 40f)
+                            fx.floatingText(buttonCenter, "👑 УЛЬТРА-БАБЛО x5", Color(0xFFFFD600), big = true)
+                            fx.kick(45f, 1f, Color(0xFFFFD600))
+                            sound.play(Sfx.ULTRA)
+                            buzz(true)
+                        }
+                        BabloGame.HoldEvent.SUPER -> {
+                            fx.burst(buttonCenter, listOf("🌈", "💎", "👑", "⚡", "6️⃣", "7️⃣", "💸"), 120, 2.4f)
+                            fx.confetti(buttonCenter, 150)
+                            for (i in 1..4) fx.ring(buttonCenter, RAINBOW[i], screenW * (0.5f + 0.4f * i), 0.6f + 0.25f * i, 36f)
+                            fx.floatingText(buttonCenter, "🌈 УЛЬТРА СУПЕР БАБЛО x25", Color(0xFFFF4081), big = true)
+                            fx.kick(70f, 1f, Color(0xFFFF4081))
+                            sound.play(Sfx.ULTRA_SUPER)
+                            buzz(true)
+                        }
+                        BabloGame.HoldEvent.NONE -> Unit
+                    }
+                }
                 if (pressed && heldMs > 250) {
                     holdCharge = ((heldMs - 250) / 1500f).coerceAtMost(1f)
                     holdAcc += game.holdRate * (0.5 + holdCharge) * dt
@@ -290,9 +335,9 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                     holdAcc = 0.0
                 }
                 if (game.ultraBablo || game.fever) {
-                    rainAcc += dt * (if (game.fever) 45f else 22f)
+                    rainAcc += dt * (if (game.fever || game.ultraSuper) 50f else 22f)
                     while (rainAcc >= 1f) {
-                        fx.rain(screenW, if (game.fever) FEVER_EMOJI else ULTRA_EMOJI)
+                        fx.rain(screenW, if (game.fever || game.ultraSuper) FEVER_EMOJI else ULTRA_EMOJI)
                         rainAcc -= 1f
                     }
                 }
@@ -323,7 +368,7 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
             .fillMaxSize()
             .drawBehind {
                 if (game.ultraBablo || game.fever) {
-                    val h = if (game.fever) (hue * 3f) % 360f else hue
+                    val h = if (game.fever || game.ultraSuper) (hue * 3f) % 360f else hue
                     drawRect(
                         Brush.verticalGradient(
                             listOf(
@@ -386,6 +431,11 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                     sound.play(Sfx.DENIED, volume = 0.5f)
                     buzz(false)
                 },
+                onHint = { text ->
+                    fx.floatingText(buttonCenter, text, Color(0xFFFFD600))
+                    fx.ring(buttonCenter, Color(0xFFFFD600), buttonRadius * 1.4f, 0.6f, 10f)
+                    sound.play(Sfx.DENIED, volume = 0.4f)
+                },
             )
 
             BoxWithConstraints(
@@ -400,6 +450,7 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                     palette = palette,
                     pressed = pressed,
                     holdCharge = holdCharge,
+                    ultraProgress = ultraProgress,
                     modifier = Modifier
                         .size(size)
                         .onGloballyPositioned {
@@ -418,9 +469,9 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                             }
                         },
                 )
-                if (!pressed && game.totalClicks in 1..30) {
+                if (!pressed && game.ultraUses == 0 && game.totalClicks in 1..300) {
                     Text(
-                        "зажми для турбо ✊",
+                        "зажми и держи — будет ультра ✊",
                         Modifier.align(Alignment.BottomCenter),
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 12.sp,
@@ -435,6 +486,28 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                 BottomTab("⭐", "Ещё", primary = false, Modifier.weight(0.8f)) { sheetTab = 3 }
             }
             Spacer(Modifier.height(10.dp))
+        }
+
+        // Пузыри турбо-выбулькивателя
+        bubbles.forEach { b ->
+            key(b.id) {
+                BubbleView(b, fx) {
+                    bubbles.remove(b)
+                    val gain = game.popBubble(b.golden)
+                    val at = Offset(b.x, b.y(System.currentTimeMillis()))
+                    fx.burst(at, if (b.golden) listOf("✨", "💰", "🫧") else listOf("💧", "🫧", "💦"), if (b.golden) 24 else 10, 0.8f)
+                    fx.ring(at, if (b.golden) Color(0xFFFFD600) else Color(0xFF80D8FF), 160f, 0.35f, 8f)
+                    fx.floatingText(
+                        at,
+                        (if (b.golden) "✨ " else "буль ") + "+${formatBablo(gain)}" +
+                            if (game.bubbleStreak >= 3) "  x${game.bubbleStreak}" else "",
+                        if (b.golden) Color(0xFFFFD600) else Color(0xFF80D8FF),
+                        big = b.golden,
+                    )
+                    sound.play(Sfx.POP, rate = 0.9f + min(game.bubbleStreak, 30) / 30f)
+                    buzz(b.golden)
+                }
+            }
         }
 
         // Золотой мешок
@@ -697,7 +770,12 @@ private fun StatsPanel(game: BabloGame, onWithdraw: () -> Unit) {
 }
 
 @Composable
-private fun ModesRow(game: BabloGame, onToggle: (List<String>, Color) -> Unit, onDenied: () -> Unit) {
+private fun ModesRow(
+    game: BabloGame,
+    onToggle: (List<String>, Color) -> Unit,
+    onDenied: () -> Unit,
+    onHint: (String) -> Unit,
+) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val m67Status = when {
             game.mode67 -> "⏳ ${formatTime(game.mode67LeftMs)}"
@@ -716,18 +794,27 @@ private fun ModesRow(game: BabloGame, onToggle: (List<String>, Color) -> Unit, o
             if (game.activate67()) onToggle(listOf("6️⃣", "7️⃣"), Color(0xFFB388FF)) else onDenied()
         }
         ModeCard(
-            emoji = "👑", title = "Ультра-бабло",
+            emoji = if (game.ultraSuper) "🌈" else "👑",
+            title = if (game.ultraSuper) "УЛЬТРА СУПЕР" else "Ультра-бабло",
             status = when {
-                game.ultraBablo -> "⏳ ${formatTime(game.ultraLeftMs)}"
-                game.ultraReady -> "ГОТОВ!"
-                else -> "⚡ ${game.ultraCharge}/${BabloGame.ULTRA_CHARGE}"
+                game.ultraSuper -> "x25 ⏳ ${formatTime(game.superLeftMs)}"
+                game.ultraBablo -> "x5 ⏳ ${formatTime(game.ultraLeftMs)}"
+                game.ultraReadyInMs > 0 -> "через ${formatTime(game.ultraReadyInMs)}"
+                else -> "✊ держи кнопку"
             },
-            active = game.ultraBablo, ready = game.ultraReady,
-            progress = if (game.ultraBablo) game.ultraLeftMs / BabloGame.ULTRA_DURATION.toFloat()
-            else game.ultraCharge / BabloGame.ULTRA_CHARGE.toFloat(),
+            active = game.ultraBablo, ready = false,
+            progress = when {
+                game.ultraSuper -> game.superLeftMs / BabloGame.SUPER_DURATION.toFloat()
+                game.ultraBablo -> game.ultraLeftMs / BabloGame.ULTRA_DURATION.toFloat()
+                game.ultraReadyInMs > 0 -> 1f - game.ultraReadyInMs / BabloGame.ULTRA_COOLDOWN.toFloat()
+                else -> 1f
+            },
             modifier = Modifier.weight(1f),
         ) {
-            if (game.activateUltra()) onToggle(ULTRA_EMOJI, Color(0xFFFFD600)) else onDenied()
+            onHint(
+                if (game.ultraBablo) "Держи БАБЛО ещё ${formatTime(game.superHoldMs)} — будет УЛЬТРА СУПЕР 🌈"
+                else "Ультра-бабло не включается кнопкой. Держи БАБЛО ${formatTime(game.ultraHoldMs)} ✊",
+            )
         }
         val turboStatus = when {
             game.turbo -> "⏳ ${formatTime(game.turboLeftMs)}"
@@ -743,7 +830,12 @@ private fun ModesRow(game: BabloGame, onToggle: (List<String>, Color) -> Unit, o
             },
             modifier = Modifier.weight(1f),
         ) {
-            if (game.activateTurbo()) onToggle(listOf("🫧", "💧"), Color(0xFF40C4FF)) else onDenied()
+            if (game.activateTurbo()) {
+                onToggle(listOf("🫧", "💧"), Color(0xFF40C4FF))
+                onHint("Лови пузыри! 🫧 Каждый — бабло, серия — больше")
+            } else {
+                onDenied()
+            }
         }
     }
 }
@@ -810,7 +902,14 @@ private fun ModeCard(
 }
 
 @Composable
-private fun UltimateButton(game: BabloGame, palette: Palette, pressed: Boolean, holdCharge: Float, modifier: Modifier) {
+private fun UltimateButton(
+    game: BabloGame,
+    palette: Palette,
+    pressed: Boolean,
+    holdCharge: Float,
+    ultraProgress: Float,
+    modifier: Modifier,
+) {
     val inf = rememberInfiniteTransition(label = "btn")
     val pulse by inf.animateFloat(
         1f, 1.05f,
@@ -832,7 +931,7 @@ private fun UltimateButton(game: BabloGame, palette: Palette, pressed: Boolean, 
     )
 
     val core = when {
-        game.fever -> listOf(Color.White, Color.hsv(hue, 1f, 1f), Color.hsv((hue + 120f) % 360f, 1f, 0.5f))
+        game.fever || game.ultraSuper -> listOf(Color.White, Color.hsv(hue, 1f, 1f), Color.hsv((hue + 120f) % 360f, 1f, 0.5f))
         game.skin == Skin.RAINBOW -> listOf(Color.White, Color.hsv(hue, 0.9f, 1f), Color.hsv((hue + 180f) % 360f, 0.9f, 0.5f))
         game.mode67 && game.skin == Skin.CLASSIC -> listOf(Color(0xFFFFE57F), Color(0xFFFFAB00), Color(0xFF6A1B9A))
         else -> game.skin.colors
@@ -875,6 +974,19 @@ private fun UltimateButton(game: BabloGame, palette: Palette, pressed: Boolean, 
                     style = Stroke(width = r * 0.04f, cap = StrokeCap.Round),
                 )
             }
+            // До ультра-бабло / ультра супер бабло
+            if (ultraProgress > 0f) {
+                val rr = r * 1.24f
+                drawArc(
+                    if (game.ultraBablo) Brush.sweepGradient(RAINBOW, center) else Brush.sweepGradient(listOf(Color(0xFFFFD600), Color(0xFFFF6D00), Color(0xFFFFD600)), center),
+                    startAngle = -90f,
+                    sweepAngle = 360f * ultraProgress,
+                    useCenter = false,
+                    topLeft = Offset(center.x - rr, center.y - rr),
+                    size = Size(rr * 2, rr * 2),
+                    style = Stroke(width = r * 0.06f, cap = StrokeCap.Round),
+                )
+            }
             // Заряд зажатия
             if (holdCharge > 0f) {
                 val rr = r * 1.15f
@@ -900,6 +1012,11 @@ private fun UltimateButton(game: BabloGame, palette: Palette, pressed: Boolean, 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 val shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 6f), 12f)
                 when {
+                    game.ultraSuper -> {
+                        Text("УЛЬТРА", fontSize = 26.sp, fontWeight = FontWeight.Black, color = Color.White, style = TextStyle(shadow = shadow))
+                        Text("СУПЕР", fontSize = 40.sp, fontWeight = FontWeight.Black, color = Color.White, style = TextStyle(shadow = shadow))
+                        Text("БАБЛО", fontSize = 26.sp, fontWeight = FontWeight.Black, color = Color.White, style = TextStyle(shadow = shadow))
+                    }
                     game.fever -> {
                         Text("ULTRA", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.White, style = TextStyle(shadow = shadow))
                         Text("6-7", fontSize = 76.sp, fontWeight = FontWeight.Black, color = Color.White, style = TextStyle(shadow = shadow))
@@ -919,6 +1036,8 @@ private fun UltimateButton(game: BabloGame, palette: Palette, pressed: Boolean, 
                         )
                         Text(
                             when {
+                                ultraProgress > 0f && game.ultraBablo -> "СУПЕР ${(ultraProgress * 100).toInt()}%"
+                                ultraProgress > 0f -> "УЛЬТРА ${(ultraProgress * 100).toInt()}%"
                                 holdCharge > 0f -> "ТУРБО ${(holdCharge * 100).toInt()}%"
                                 game.ultraBablo -> "УЛЬТРА"
                                 else -> "ЖМИ"
@@ -984,5 +1103,62 @@ private fun Thermometer(game: BabloGame) {
             fontSize = 12.sp,
             color = Color.White.copy(alpha = 0.8f),
         )
+    }
+}
+
+/** Пузырь турбо-выбулькивателя: летит вверх, его надо поймать пальцем. */
+class TurboBubble(
+    val id: Long,
+    val x: Float,
+    val startY: Float,
+    val born: Long,
+    val speed: Float,
+    val golden: Boolean,
+    val sizeDp: Float,
+    val wobble: Float,
+) {
+    fun age(now: Long) = (now - born) / 1000f
+    fun y(now: Long) = startY - speed * age(now)
+    fun xAt(now: Long) = x + sin(age(now) * wobble) * 40f
+}
+
+private var bubbleId = 0L
+
+@Composable
+private fun BubbleView(b: TurboBubble, fx: Fx, onPop: () -> Unit) {
+    val density = LocalDensity.current
+    val sizePx = with(density) { b.sizeDp.dp.toPx() }
+    Box(
+        Modifier
+            .offset {
+                @Suppress("UNUSED_VARIABLE") val f = fx.frame
+                val now = System.currentTimeMillis()
+                IntOffset((b.xAt(now) - sizePx / 2).roundToInt(), (b.y(now) - sizePx / 2).roundToInt())
+            }
+            .size(b.sizeDp.dp)
+            .clip(CircleShape)
+            .drawBehind {
+                drawCircle(
+                    Brush.radialGradient(
+                        if (b.golden) listOf(Color(0xFFFFF59D).copy(alpha = 0.9f), Color(0xFFFFD600).copy(alpha = 0.35f))
+                        else listOf(Color.White.copy(alpha = 0.55f), Color(0xFF80D8FF).copy(alpha = 0.2f)),
+                        center = Offset(size.width * 0.35f, size.height * 0.35f),
+                        radius = size.minDimension * 0.8f,
+                    )
+                )
+                drawCircle(
+                    if (b.golden) Color(0xFFFFD600) else Color.White.copy(alpha = 0.8f),
+                    style = Stroke(width = 3f),
+                )
+            }
+            .pointerInput(b.id) {
+                awaitEachGesture {
+                    awaitFirstDown().consume()
+                    onPop()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(if (b.golden) "💰" else "🫧", fontSize = (b.sizeDp * 0.4f).sp)
     }
 }
