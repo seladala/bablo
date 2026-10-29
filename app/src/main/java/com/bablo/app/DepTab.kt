@@ -34,10 +34,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val BETS = listOf(67L, 670L, 1_000L, 6_767L)
+
+/** Как runCatching, но не глотает отмену корутины — иначе в статусе всплывают ошибки Compose. */
+private inline fun <T> depCatching(block: () -> T): Result<T> = try {
+    Result.success(block())
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    Result.failure(e)
+}
 
 private fun depResultText(r: DepApi.Spin.Result) = when (r.result) {
     "jackpot" -> "🤑 ДЖЕКПОТ! +${r.win} ДК"
@@ -75,10 +85,10 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
 
     suspend fun refresh() {
         // Профиль и кошелёк в разных скоупах: показываем то, что разрешено ключом.
-        runCatching { DepApi.profile(token()) }
+        depCatching { DepApi.profile(token()) }
             .onSuccess { profile = it }
             .onFailure { status = "Профиль: ${it.message}" }
-        runCatching { DepApi.wallet(token()) }
+        depCatching { DepApi.wallet(token()) }
             .onSuccess { wallet = it }
             .onFailure { status = "Кошелёк: ${it.message}" }
     }
@@ -108,11 +118,11 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
     }
 
     // Возврат из браузера: меняем code на токены.
+    // depCallback — ключ этого эффекта, поэтому обнуляем его только в самом конце:
+    // смена ключа посреди обмена отменила бы запрос («coroutine scope left the composition»).
     LaunchedEffect(game.depCallback) {
         val cb = game.depCallback ?: return@LaunchedEffect
-        game.depCallback = null
         val expected = game.depOAuthState
-        game.depOAuthState = ""
         when {
             cb.error != null -> status = "DEP ID: ${cb.error}"
             cb.code == null -> status = "DEP ID не вернул код входа"
@@ -120,12 +130,20 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
             else -> {
                 busy = true
                 status = "Входим через DEP ID…"
-                runCatching { DepApi.exchangeCode(cb.code) }
-                    .onSuccess { game.setDepTokens(it); status = null }
-                    .onFailure { status = "Вход: ${it.message}" }
-                busy = false
+                try {
+                    game.setDepTokens(DepApi.exchangeCode(cb.code))
+                    status = null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    status = "Вход: ${e.message}"
+                } finally {
+                    busy = false
+                }
             }
         }
+        game.depOAuthState = ""
+        game.depCallback = null
         game.save()
     }
 
@@ -168,6 +186,8 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
             } else {
                 status = "DEP снова просит подтверждение — попробуй ещё раз"
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             status = e.message ?: "Ошибка сети"
             onDenied()
