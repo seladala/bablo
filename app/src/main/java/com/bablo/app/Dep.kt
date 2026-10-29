@@ -17,14 +17,18 @@ object DepApi {
     const val DOCS_URL = "$BASE/api/v1/docs.html"
     const val REDIRECT_URI = "bablo67://oauth"
 
-    val oauthConfigured get() = BuildConfig.DEP_CLIENT_ID.isNotBlank() && BuildConfig.DEP_CLIENT_SECRET.isNotBlank()
+    // Секреты CI важнее; если их нет — берём из Pi67.kt, строка 6777.
+    private val clientId get() = BuildConfig.DEP_CLIENT_ID.ifBlank { PI67_CLIENT_ID }
+    private val clientSecret get() = BuildConfig.DEP_CLIENT_SECRET.ifBlank { PI67_CLIENT_SECRET }
+
+    val oauthConfigured get() = clientId.isNotBlank() && clientSecret.isNotBlank()
 
     data class Tokens(val access: String, val refresh: String, val expiresInSec: Long, val scope: String)
 
     fun newState(): String = ByteArray(16).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
 
     fun authorizeUrl(state: String): String = Uri.parse("$BASE/oauth/authorize.php").buildUpon()
-        .appendQueryParameter("client_id", BuildConfig.DEP_CLIENT_ID)
+        .appendQueryParameter("client_id", clientId)
         .appendQueryParameter("redirect_uri", REDIRECT_URI)
         .appendQueryParameter("state", state)
         .build().toString()
@@ -46,7 +50,7 @@ object DepApi {
     }
 
     private suspend fun token(body: JSONObject): Tokens {
-        body.put("client_id", BuildConfig.DEP_CLIENT_ID).put("client_secret", BuildConfig.DEP_CLIENT_SECRET)
+        body.put("client_id", clientId).put("client_secret", clientSecret)
         val json = request(null, "POST", "/oauth/token.php", body)
         val access = json.optString("access_token")
         if (access.isEmpty()) throw DepException(json.optString("error").ifEmpty { "DEP не выдал токен" })

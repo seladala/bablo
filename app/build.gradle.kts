@@ -15,8 +15,8 @@ android {
         applicationId = "com.bablo.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 72
-        versionName = "6.7.5"
+        versionCode = 73
+        versionName = "6.7.6"
 
         buildConfigField("String", "DEP_CLIENT_ID", "\"${depProp("DEP_CLIENT_ID")}\"")
         buildConfigField("String", "DEP_CLIENT_SECRET", "\"${depProp("DEP_CLIENT_SECRET")}\"")
