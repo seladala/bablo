@@ -150,6 +150,9 @@ enum class Achievement(val emoji: String, val title: String, val description: St
 
 data class GoldenBag(val xFrac: Float, val yFrac: Float, val expiresAt: Long)
 
+/** Что DEP ID вернул в bablo67://oauth. */
+data class DepCallback(val code: String?, val state: String?, val error: String?)
+
 /** Входящий звонок от бабла: звенит, пока не ответишь или не сбросится. */
 data class PhoneCall(val caller: String, val expiresAt: Long)
 
@@ -268,8 +271,28 @@ class BabloGame(context: Context) {
         private set
     private var nextCallAt = System.currentTimeMillis() + 90_000
 
-    /** API-ключ DEP ID для калькулятора депа. */
+    /** Bearer-токен DEP: OAuth access-токен или API-ключ. */
     var depKey by mutableStateOf(prefs.getString("depKey", "") ?: "")
+    /** Пусто — вход по API-ключу, иначе OAuth и токен можно обновить. */
+    var depRefresh by mutableStateOf(prefs.getString("depRefresh", "") ?: "")
+    var depExpiresAt = prefs.getLong("depExpires", 0L)
+    /** state последнего OAuth-запроса; хранится, потому что пока юзер в браузере, процесс могут убить. */
+    var depOAuthState = prefs.getString("depOAuthState", "") ?: ""
+    var depCallback by mutableStateOf<DepCallback?>(null)
+
+    fun setDepTokens(t: DepApi.Tokens) {
+        depKey = t.access
+        depRefresh = t.refresh
+        depExpiresAt = System.currentTimeMillis() + t.expiresInSec * 1000
+        save()
+    }
+
+    fun depLogout() {
+        depKey = ""
+        depRefresh = ""
+        depExpiresAt = 0L
+        save()
+    }
 
     /** Сколько накапало, пока игрок отсутствовал; UI показывает и обнуляет. */
     var offlineGain by mutableStateOf<Double?>(null)
@@ -803,6 +826,9 @@ class BabloGame(context: Context) {
             putInt("depSpins", depSpins)
             putInt("depJackpots", depJackpots)
             putString("depKey", depKey)
+            putString("depRefresh", depRefresh)
+            putLong("depExpires", depExpiresAt)
+            putString("depOAuthState", depOAuthState)
             putLong("ultraStart", ultraStart)
             putLong("ultraReady", ultraReadyAt)
             putLong("superEnd", superEnd)

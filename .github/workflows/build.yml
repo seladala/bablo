@@ -18,6 +18,9 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - name: Build
+        env:
+          DEP_CLIENT_ID: ${{ secrets.DEP_CLIENT_ID }}
+          DEP_CLIENT_SECRET: ${{ secrets.DEP_CLIENT_SECRET }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --stacktrace

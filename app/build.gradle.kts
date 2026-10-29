@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// OAuth-приложение DEP ID: -PDEP_CLIENT_ID=... или переменные окружения (секреты CI).
+fun depProp(name: String) = (findProperty(name) as String?) ?: System.getenv(name) ?: ""
+
 android {
     namespace = "com.bablo.app"
     compileSdk = 35
@@ -12,8 +15,11 @@ android {
         applicationId = "com.bablo.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 71
-        versionName = "6.7.4"
+        versionCode = 72
+        versionName = "6.7.5"
+
+        buildConfigField("String", "DEP_CLIENT_ID", "\"${depProp("DEP_CLIENT_ID")}\"")
+        buildConfigField("String", "DEP_CLIENT_SECRET", "\"${depProp("DEP_CLIENT_SECRET")}\"")
     }
 
     signingConfigs {
@@ -42,6 +48,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

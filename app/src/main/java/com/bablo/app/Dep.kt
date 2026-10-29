@@ -2,9 +2,11 @@ package com.bablo.app
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.net.Uri
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
 
 /**
  * Клиент публичного API Калькулятора Депа (DEP ID).
@@ -13,6 +15,43 @@ import java.net.URL
 object DepApi {
     const val BASE = "https://zenusus.serv00.net/dep"
     const val DOCS_URL = "$BASE/api/v1/docs.html"
+    const val REDIRECT_URI = "bablo67://oauth"
+
+    val oauthConfigured get() = BuildConfig.DEP_CLIENT_ID.isNotBlank() && BuildConfig.DEP_CLIENT_SECRET.isNotBlank()
+
+    data class Tokens(val access: String, val refresh: String, val expiresInSec: Long, val scope: String)
+
+    fun newState(): String = ByteArray(16).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+
+    fun authorizeUrl(state: String): String = Uri.parse("$BASE/oauth/authorize.php").buildUpon()
+        .appendQueryParameter("client_id", BuildConfig.DEP_CLIENT_ID)
+        .appendQueryParameter("redirect_uri", REDIRECT_URI)
+        .appendQueryParameter("state", state)
+        .build().toString()
+
+    suspend fun exchangeCode(code: String): Tokens = token(
+        JSONObject()
+            .put("grant_type", "authorization_code")
+            .put("code", code)
+            .put("redirect_uri", REDIRECT_URI)
+    )
+
+    suspend fun refresh(refreshToken: String): Tokens = token(
+        JSONObject().put("grant_type", "refresh_token").put("refresh_token", refreshToken)
+    )
+
+    /** Завершение сессии: после отзыва токен отвечает 401. Ошибки не важны — мы и так выходим. */
+    suspend fun revoke(token: String) {
+        runCatching { request(null, "POST", "/oauth/revoke.php", JSONObject().put("token", token)) }
+    }
+
+    private suspend fun token(body: JSONObject): Tokens {
+        body.put("client_id", BuildConfig.DEP_CLIENT_ID).put("client_secret", BuildConfig.DEP_CLIENT_SECRET)
+        val json = request(null, "POST", "/oauth/token.php", body)
+        val access = json.optString("access_token")
+        if (access.isEmpty()) throw DepException(json.optString("error").ifEmpty { "DEP не выдал токен" })
+        return Tokens(access, json.optString("refresh_token"), json.optLong("expires_in", 3600), json.optString("scope"))
+    }
 
     class DepException(message: String) : Exception(message)
 
@@ -63,14 +102,14 @@ object DepApi {
     suspend fun spinStatus(key: String, statusUrl: String): String =
         request(key, "GET", statusUrl).optString("status", "expired")
 
-    private suspend fun request(key: String, method: String, path: String, body: JSONObject? = null): JSONObject =
+    private suspend fun request(key: String?, method: String, path: String, body: JSONObject? = null): JSONObject =
         withContext(Dispatchers.IO) {
             val conn = URL(if (path.startsWith("http")) path else BASE + path).openConnection() as HttpURLConnection
             try {
                 conn.requestMethod = method
                 conn.connectTimeout = 10_000
                 conn.readTimeout = 15_000
-                conn.setRequestProperty("Authorization", "Bearer ${key.trim()}")
+                if (key != null) conn.setRequestProperty("Authorization", "Bearer ${key.trim()}")
                 conn.setRequestProperty("Accept", "application/json")
                 if (body != null) {
                     conn.doOutput = true

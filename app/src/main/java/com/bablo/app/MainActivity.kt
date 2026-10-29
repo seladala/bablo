@@ -1,5 +1,6 @@
 package com.bablo.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -113,9 +114,26 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         game = BabloGame(this)
         sound = SoundEngine(this)
+        handleOAuth(intent)
         setContent {
             BabloTheme(game) { BabloScreen(game, sound) }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleOAuth(intent)
+    }
+
+    /** bablo67://oauth?code=...&state=... — DEP ID вернул нас после входа. */
+    private fun handleOAuth(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != "bablo67" || uri.host != "oauth") return
+        game.depCallback = DepCallback(
+            code = uri.getQueryParameter("code"),
+            state = uri.getQueryParameter("state"),
+            error = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error"),
+        )
     }
 
     override fun onPause() {
@@ -175,6 +193,8 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
     var screenH by remember { mutableFloatStateOf(1920f) }
     var sheetTab by remember { mutableIntStateOf(-1) }
     var showWithdraw by remember { mutableStateOf(false) }
+    // Вернулись из браузера после входа в DEP ID — сразу открываем вкладку ДЕП.
+    LaunchedEffect(game.depCallback) { if (game.depCallback != null) sheetTab = 6 }
     var callLine by remember { mutableStateOf<String?>(null) }
     var pressed by remember { mutableStateOf(false) }
     var pressStart by remember { mutableLongStateOf(0L) }

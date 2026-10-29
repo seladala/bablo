@@ -60,14 +60,73 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
     var bet by remember { mutableLongStateOf(BETS.first()) }
     var lastSpin by remember { mutableStateOf<DepApi.Spin.Result?>(null) }
 
+    /** Актуальный bearer: OAuth-токен живёт час, за минуту до конца обновляем его по refresh-токену. */
+    suspend fun token(): String {
+        if (game.depRefresh.isNotEmpty() && System.currentTimeMillis() > game.depExpiresAt - 60_000) {
+            try {
+                game.setDepTokens(DepApi.refresh(game.depRefresh))
+            } catch (e: Exception) {
+                game.depLogout()
+                throw DepApi.DepException("Сессия DEP ID истекла, войди заново")
+            }
+        }
+        return game.depKey
+    }
+
     suspend fun refresh() {
         // Профиль и кошелёк в разных скоупах: показываем то, что разрешено ключом.
-        runCatching { DepApi.profile(game.depKey) }
+        runCatching { DepApi.profile(token()) }
             .onSuccess { profile = it }
             .onFailure { status = "Профиль: ${it.message}" }
-        runCatching { DepApi.wallet(game.depKey) }
+        runCatching { DepApi.wallet(token()) }
             .onSuccess { wallet = it }
             .onFailure { status = "Кошелёк: ${it.message}" }
+    }
+
+    fun login() {
+        val state = DepApi.newState()
+        game.depOAuthState = state
+        game.save()
+        uri.openUri(DepApi.authorizeUrl(state))
+    }
+
+    fun logout() {
+        val access = game.depKey
+        val refreshToken = game.depRefresh
+        if (refreshToken.isNotEmpty()) {
+            scope.launch {
+                DepApi.revoke(access)
+                DepApi.revoke(refreshToken)
+            }
+        }
+        game.depLogout()
+        keyInput = ""
+        profile = null
+        wallet = null
+        lastSpin = null
+        status = null
+    }
+
+    // Возврат из браузера: меняем code на токены.
+    LaunchedEffect(game.depCallback) {
+        val cb = game.depCallback ?: return@LaunchedEffect
+        game.depCallback = null
+        val expected = game.depOAuthState
+        game.depOAuthState = ""
+        when {
+            cb.error != null -> status = "DEP ID: ${cb.error}"
+            cb.code == null -> status = "DEP ID не вернул код входа"
+            expected.isEmpty() || cb.state != expected -> status = "Вход не прошёл проверку, попробуй ещё раз"
+            else -> {
+                busy = true
+                status = "Входим через DEP ID…"
+                runCatching { DepApi.exchangeCode(cb.code) }
+                    .onSuccess { game.setDepTokens(it); status = null }
+                    .onFailure { status = "Вход: ${it.message}" }
+                busy = false
+            }
+        }
+        game.save()
     }
 
     LaunchedEffect(game.depKey) {
@@ -83,7 +142,7 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
         busy = true
         status = "🎰 Крутим…"
         try {
-            var res = DepApi.spin(game.depKey, bet)
+            var res = DepApi.spin(token(), bet)
             if (res is DepApi.Spin.NeedsConfirm) {
                 status = "Подтверди спин в браузере DEP ID и возвращайся 🤝"
                 uri.openUri(res.confirmUrl)
@@ -92,14 +151,14 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
                 val until = System.currentTimeMillis() + 15 * 60_000L
                 while (decision == "pending" && System.currentTimeMillis() < until) {
                     delay(3_000)
-                    decision = DepApi.spinStatus(game.depKey, res.statusUrl)
+                    decision = DepApi.spinStatus(token(), res.statusUrl)
                 }
                 if (decision != "approved") {
                     status = if (decision == "denied") "Отказано. Деп не состоялся 🚫" else "Время на подтверждение вышло ⌛"
                     onDenied()
                     return@launch
                 }
-                res = DepApi.spin(game.depKey, bet)
+                res = DepApi.spin(token(), bet)
             }
             if (res is DepApi.Spin.Result) {
                 lastSpin = res
@@ -126,6 +185,25 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
         )
 
         if (game.depKey.isBlank()) {
+            if (DepApi.oauthConfigured) {
+                Button(
+                    onClick = { login() },
+                    enabled = !busy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Text("🔐 Войти через DEP ID ✅", fontWeight = FontWeight.Black, fontSize = 17.sp)
+                }
+                Text("или по API-ключу:", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+            } else {
+                Text(
+                    "Вход через DEP ID не настроен в этой сборке (нет DEP_CLIENT_ID / DEP_CLIENT_SECRET) — пока только API-ключ.",
+                    fontSize = 12.sp,
+                    color = Color(0xFFFFCC80),
+                )
+            }
             OutlinedTextField(
                 value = keyInput,
                 onValueChange = { keyInput = it.trim() },
@@ -149,6 +227,11 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
             ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     val p = profile
+                    Text(
+                        if (game.depRefresh.isNotEmpty()) "🔐 Вход через DEP ID" else "🔑 Вход по API-ключу",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
                     if (p != null) {
                         Text(
                             "${p.title} ${p.username}".trim() + (if (p.verified) " ✔️" else "") + (if (p.supporter) " 💎" else ""),
@@ -196,15 +279,7 @@ fun DepTab(game: BabloGame, onDep: (DepApi.Spin.Result) -> Unit, onDenied: () ->
                 OutlinedButton(onClick = { scope.launch { busy = true; status = null; refresh(); busy = false } }, enabled = !busy) {
                     Text("🔄 Обновить")
                 }
-                TextButton(onClick = {
-                    game.depKey = ""
-                    game.save()
-                    keyInput = ""
-                    profile = null
-                    wallet = null
-                    lastSpin = null
-                    status = null
-                }) { Text("Выйти") }
+                TextButton(onClick = { logout() }) { Text("Выйти") }
             }
             Text("🎰 Депов из игры: ${game.depSpins} · 🤑 джекпотов: ${game.depJackpots}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
         }
