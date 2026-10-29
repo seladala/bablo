@@ -142,9 +142,28 @@ enum class Achievement(val emoji: String, val title: String, val description: St
     GOLDEN_25("🌟", "Ловец мешков", "Поймать 25 золотых мешков", { it.goldenCaught >= 25 }),
     SKIN("🎨", "Модник", "Купить скин кнопки", { it.ownedSkins.size >= 2 }),
     WITHDRAW("💳", "Вывел!", "Вывести 68 квинтиллиардов", { it.withdrawals >= 1 }),
+    ALO("📞", "Ало?", "Ответить на звонок от бабла", { it.callsAnswered >= 1 }),
+    ALO_67("☎️", "Колл-центр 67", "Ответить на 67 звонков", { it.callsAnswered >= 67 }),
+    DEP("🎰", "Депнул", "Крутануть слоты через DEP API", { it.depSpins >= 1 }),
+    DEP_JACKPOT("🤑", "Додеп окупился", "Поймать джекпот в DEP", { it.depJackpots >= 1 }),
 }
 
 data class GoldenBag(val xFrac: Float, val yFrac: Float, val expiresAt: Long)
+
+/** Входящий звонок от бабла: звенит, пока не ответишь или не сбросится. */
+data class PhoneCall(val caller: String, val expiresAt: Long)
+
+private val CALLERS = listOf("Бабло 67", "Бабушка", "Шаурмичная", "Офшор", "Центробанк", "Хаммам", "Неизвестный 6-7")
+
+private val CALL_LINES = listOf(
+    "Ало, это бабло. Выходи, я у подъезда 💸",
+    "Ало? Тебе звонит банк. У вас слишком много бабла, держите ещё.",
+    "Ало, брат, ты где? Тут бабло раздают 🤝",
+    "Ало-ало! Шаурма с баблом готова 🌯",
+    "Ало, это хаммам. Нас всё ещё нельзя купить. Но вот тебе на пар ♨️",
+    "Ало, шестьдесят семь. Повторяю: шестьдесят семь 🤷",
+    "Ало, это офшор. Мы тут немного намножили, забери 🏝️",
+)
 
 /** Всё состояние игры. Хаммам купить нельзя — но его можно улучшать. Это философия. */
 class BabloGame(context: Context) {
@@ -194,6 +213,12 @@ class BabloGame(context: Context) {
         private set
     var bestBubbleStreak by mutableIntStateOf(prefs.getInt("bubbleStreak", 0))
         private set
+    var callsAnswered by mutableIntStateOf(prefs.getInt("calls", 0))
+        private set
+    var depSpins by mutableIntStateOf(prefs.getInt("depSpins", 0))
+        private set
+    var depJackpots by mutableIntStateOf(prefs.getInt("depJackpots", 0))
+        private set
     var temperature by mutableFloatStateOf(prefs.getFloat("temp", 0f))
         private set
 
@@ -238,6 +263,13 @@ class BabloGame(context: Context) {
     var golden by mutableStateOf<GoldenBag?>(null)
         private set
     private var nextGoldenAt = System.currentTimeMillis() + 45_000
+
+    var call by mutableStateOf<PhoneCall?>(null)
+        private set
+    private var nextCallAt = System.currentTimeMillis() + 90_000
+
+    /** API-ключ DEP ID для калькулятора депа. */
+    var depKey by mutableStateOf(prefs.getString("depKey", "") ?: "")
 
     /** Сколько накапало, пока игрок отсутствовал; UI показывает и обнуляет. */
     var offlineGain by mutableStateOf<Double?>(null)
@@ -625,6 +657,44 @@ class BabloGame(context: Context) {
         nextGoldenAt = System.currentTimeMillis() + delay.toLong()
     }
 
+    // ---------- 📞 Ало ----------
+
+    data class CallReward(val line: String, val amount: Double)
+
+    fun answerCall(): CallReward? {
+        call ?: return null
+        call = null
+        callsAnswered++
+        scheduleCall()
+        val amount = (perSecond * 120 + perClick * 67) * (if (Random.nextInt(67) == 0) 67 else 1) + 67
+        earn(amount)
+        return CallReward(CALL_LINES.random(), amount)
+    }
+
+    fun declineCall() {
+        call = null
+        scheduleCall()
+    }
+
+    private fun scheduleCall() {
+        nextCallAt = System.currentTimeMillis() + 120_000 + Random.nextLong(180_000)
+    }
+
+    // ---------- 🎰 DEP ----------
+
+    /** Награда в бабле за спин в DEP: чем жирнее выигрыш относительно ставки, тем больше. */
+    fun depReward(result: String, bet: Long, win: Long): Double {
+        depSpins++
+        if (result == "jackpot") {
+            depJackpots++
+            frenzyEnd = System.currentTimeMillis() + 30_000
+        }
+        val ratio = if (bet > 0) win.toDouble() / bet else 0.0
+        val amount = (perSecond * 60 + perClick * 10) * (0.5 + ratio) + 6.7
+        earn(amount)
+        return amount
+    }
+
     // ---------- Вывод (престиж) ----------
 
     val canWithdraw get() = money >= WITHDRAW_MIN
@@ -685,6 +755,13 @@ class BabloGame(context: Context) {
             scheduleGolden()
         }
 
+        val c = call
+        if (c == null && now >= nextCallAt && golden == null) {
+            call = PhoneCall(CALLERS.random(), now + 12_000)
+        } else if (c != null && now > c.expiresAt) {
+            declineCall()
+        }
+
         achievementAcc += dtSec
         if (achievementAcc > 0.5) {
             achievementAcc = 0.0
@@ -722,6 +799,10 @@ class BabloGame(context: Context) {
             putInt("ultraSuperUses", ultraSuperUses)
             putInt("bubbles", bubblesPopped)
             putInt("bubbleStreak", bestBubbleStreak)
+            putInt("calls", callsAnswered)
+            putInt("depSpins", depSpins)
+            putInt("depJackpots", depJackpots)
+            putString("depKey", depKey)
             putLong("ultraStart", ultraStart)
             putLong("ultraReady", ultraReadyAt)
             putLong("superEnd", superEnd)

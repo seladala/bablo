@@ -12,7 +12,7 @@ import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.random.Random
 
-enum class Sfx { COIN, CRIT, BUBBLE, BUY, DENIED, SIX_SEVEN, GOLDEN, FEVER, WITHDRAW, MODE, ACHIEVEMENT, HAMMAM, POP, ULTRA, ULTRA_SUPER }
+enum class Sfx { COIN, CRIT, BUBBLE, BUY, DENIED, SIX_SEVEN, GOLDEN, FEVER, WITHDRAW, MODE, ACHIEVEMENT, HAMMAM, POP, ULTRA, ULTRA_SUPER, RING, DEP }
 
 private const val SR = 22050
 private const val TWO_PI = (2 * PI).toFloat()
@@ -139,6 +139,17 @@ private fun synth(s: Sfx): FloatArray {
             val arp = square(f, t) * 0.12f * exp(-(t - step * 0.1f) * 12f)
             val boom = sin(TWO_PI * 60f * t) * exp(-t * 3f) * 0.5f
             (sweep + arp + boom) * (if (t > 1.4f) (1.6f - t) / 0.2f else 1f)
+        }
+        Sfx.RING -> gen(1.2f) { t ->
+            // старый добрый телефон: две трели 440+480 Гц с дребезгом звонка
+            val on = (t % 0.6f) < 0.4f
+            val trill = if (sin(TWO_PI * 20f * t) > 0f) 1f else 0.4f
+            if (on) (sine(440f, t) + sine(480f, t)) * 0.3f * trill else 0f
+        }
+        Sfx.DEP -> gen(0.8f) { t ->
+            // барабан слотов: тики с ускорением + звонок в конце
+            val tick = note(t % 0.08f, 0f, 0.03f, 1800f, 60f, ::square) * 0.2f * (if (t < 0.55f) 1f else 0f)
+            tick + note(t, 0.55f, 0.25f, 1568f, 8f) * 0.4f + note(t, 0.6f, 0.2f, 2093f, 9f) * 0.3f
         }
         Sfx.HAMMAM -> gen(0.9f) { t ->
             // шипение пара + низкий гонг

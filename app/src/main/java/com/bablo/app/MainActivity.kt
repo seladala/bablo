@@ -175,6 +175,7 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
     var screenH by remember { mutableFloatStateOf(1920f) }
     var sheetTab by remember { mutableIntStateOf(-1) }
     var showWithdraw by remember { mutableStateOf(false) }
+    var callLine by remember { mutableStateOf<String?>(null) }
     var pressed by remember { mutableStateOf(false) }
     var pressStart by remember { mutableLongStateOf(0L) }
     var holdCharge by remember { mutableFloatStateOf(0f) }
@@ -483,6 +484,7 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                 BottomTab("🏭", "Бизнес", primary = true, Modifier.weight(1f)) { sheetTab = 0 }
                 BottomTab("👆", "Кнопка", primary = true, Modifier.weight(1f)) { sheetTab = 1 }
                 BottomTab("🧖", "Хаммам", primary = false, Modifier.weight(1f)) { sheetTab = 2 }
+                BottomTab("🎰", "Деп", primary = false, Modifier.weight(0.8f)) { sheetTab = 6 }
                 BottomTab("⭐", "Ещё", primary = false, Modifier.weight(0.8f)) { sheetTab = 3 }
             }
             Spacer(Modifier.height(10.dp))
@@ -540,7 +542,43 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
             }
         }
 
+        // 📞 Входящий звонок от бабла
+        game.call?.let { c ->
+            IncomingCall(
+                c,
+                sound,
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 80.dp),
+                onAnswer = {
+                    val r = game.answerCall() ?: return@IncomingCall
+                    callLine = r.line
+                    fx.burst(buttonCenter, listOf("📞", "☎️", "💸", "💰", "🤝"), 40, 1.4f)
+                    fx.ring(buttonCenter, Color(0xFF69F0AE), screenW, 0.8f, 24f)
+                    fx.floatingText(buttonCenter, "📞 АЛО! +${formatBablo(r.amount)}", Color(0xFF69F0AE), big = true)
+                    fx.kick(20f, 0.7f, Color(0xFF69F0AE))
+                    sound.play(Sfx.GOLDEN)
+                    buzz(true)
+                },
+                onDecline = {
+                    game.declineCall()
+                    sound.play(Sfx.DENIED, volume = 0.4f)
+                },
+            )
+        }
+
         AchievementBanner(game, sound, Modifier.align(Alignment.TopCenter))
+    }
+
+    callLine?.let { line ->
+        AlertDialog(
+            onDismissRequest = { callLine = null },
+            icon = { Text("📞", fontSize = 36.sp) },
+            title = { Text("Ало?") },
+            text = { Text(line) },
+            confirmButton = { Button(onClick = { callLine = null }) { Text("Понял, брат 🤝") } },
+        )
     }
 
     if (sheetTab >= 0) {
@@ -563,6 +601,16 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
             onDenied = {
                 sound.play(Sfx.DENIED, volume = 0.6f)
                 buzz(true)
+            },
+            onDep = { r ->
+                val gain = game.depReward(r.result, r.bet, r.win)
+                val jackpot = r.result == "jackpot"
+                fx.burst(buttonCenter, listOf("🎰", "🪙", "💸", "6️⃣", "7️⃣"), if (jackpot) 100 else 40, if (jackpot) 2f else 1.3f)
+                if (jackpot) fx.confetti(buttonCenter, 120)
+                fx.floatingText(buttonCenter, (if (jackpot) "🤑 ДЖЕКПОТ! " else "🎰 ДЕП ") + "+${formatBablo(gain)}", Color(0xFFFFD600), big = true)
+                fx.kick(if (jackpot) 50f else 20f, 0.8f, Color(0xFFFFD600))
+                sound.play(if (jackpot) Sfx.ULTRA else Sfx.DEP)
+                buzz(jackpot)
             },
         )
     }
@@ -635,6 +683,36 @@ private fun GoldenBagView(bag: GoldenBag, screenW: Float, screenH: Float, onCatc
         contentAlignment = Alignment.Center,
     ) {
         Text("💰", fontSize = 42.sp)
+    }
+}
+
+@Composable
+private fun IncomingCall(call: PhoneCall, sound: SoundEngine, modifier: Modifier, onAnswer: () -> Unit, onDecline: () -> Unit) {
+    val inf = rememberInfiniteTransition(label = "call")
+    val shake by inf.animateFloat(-12f, 12f, infiniteRepeatable(tween(70), RepeatMode.Reverse), label = "shake")
+    LaunchedEffect(call) {
+        while (true) {
+            sound.play(Sfx.RING, volume = 0.6f)
+            kotlinx.coroutines.delay(1_300)
+        }
+    }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = Color(0xFF1B1B1B),
+        border = BorderStroke(2.dp, Color(0xFF69F0AE)),
+        shadowElevation = 16.dp,
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("📞", fontSize = 32.sp, modifier = Modifier.graphicsLayer { rotationZ = shake })
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Входящий звонок", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+                Text(call.caller, fontWeight = FontWeight.Black, color = Color.White)
+            }
+            TextButton(onClick = onDecline) { Text("❌", fontSize = 20.sp) }
+            Button(onClick = onAnswer, shape = RoundedCornerShape(16.dp)) { Text("Ало ✅", fontWeight = FontWeight.Bold) }
+        }
     }
 }
 

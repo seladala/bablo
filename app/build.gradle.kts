@@ -12,8 +12,8 @@ android {
         applicationId = "com.bablo.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 70
-        versionName = "6.7.3"
+        versionCode = 71
+        versionName = "6.7.4"
     }
 
     signingConfigs {
