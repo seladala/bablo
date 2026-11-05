@@ -14,6 +14,7 @@ import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.pow
+import kotlin.concurrent.thread
 import kotlin.random.Random
 
 /**
@@ -74,7 +75,11 @@ enum class Perk(
     SIXTH_SENSE("6️⃣", "Шестьдесят седьмое чувство", "Режим 67 длится вдвое дольше", 6.7e9),
     PCT3("💹", "Тык с тремя процентами", "Ещё +3% дохода/сек к тыку", 5e10, "PCT2"),
     ROULETTE("🎰", "Бабло-рулетка", "Каждый 67-й тык — случайный приз", 1e12),
-    ULTRA_FINGER("💥", "ULTRA 6-7 палец", "Лихорадка ULTRA 6-7 даёт x67 вместо x6.7", 6.7e13, "GOLD67");
+    ULTRA_FINGER("💥", "ULTRA 6-7 палец", "Лихорадка ULTRA 6-7 даёт x67 вместо x6.7", 6.7e13, "GOLD67"),
+    SLOT_INSURANCE("🛡️", "Бабло-страховка", "Пара в слотах возвращает 80% ставки вместо 67%", 6.7e5),
+    MINER_HASH("🧮", "Тройной хэш", "Блоки майнера приносят x3 бабла", 6.7e6),
+    CPU_CACHE("💾", "Кэш Бурмалды", "Процессор майнера работает на 67% быстрее", 6.7e8, "MINER_HASH"),
+    PI_67("🥧", "Шестьдесят семь в π", "«67» в знаках π даёт x670 вместо x67", 6.7e11);
 
     val requiresPerk: Perk? get() = requires?.let { valueOf(it) }
 }
@@ -146,6 +151,39 @@ enum class Achievement(val emoji: String, val title: String, val description: St
     ALO_67("☎️", "Колл-центр 67", "Ответить на 67 звонков", { it.callsAnswered >= 67 }),
     DEP("🎰", "Депнул", "Крутануть слоты через DEP API", { it.depSpins >= 1 }),
     DEP_JACKPOT("🤑", "Додеп окупился", "Поймать джекпот в DEP", { it.depJackpots >= 1 }),
+    DEP_67("🎰", "Додеп x67", "67 депов через DEP API", { it.depSpins >= 67 }),
+    SLOTS_1("🎲", "Крутанул", "Крутануть слоты бабла", { it.slotSpins >= 1 }),
+    SLOTS_67("🎰", "Лудоман", "67 спинов в слотах", { it.slotSpins >= 67 }),
+    SLOTS_670("🎡", "Слотоман", "670 спинов в слотах", { it.slotSpins >= 670 }),
+    SLOTS_SIX_SEVEN("6️⃣", "Шесть-семь на барабанах", "Выбить 6️⃣7️⃣ в слотах", { it.slotSixSevens >= 1 }),
+    SLOTS_THREE("🍀", "Три в ряд", "Три одинаковых в слотах", { it.slotThrees >= 1 }),
+    SLOTS_CROWN("👑", "Королевский джекпот", "👑👑👑 в слотах", { it.slotCrowns >= 1 }),
+    MINER("⛏️", "Майнер", "Запустить процессор БУРМАЛДА-67", { it.cpuLevel >= 1 }),
+    BLOCK_1("🧱", "Первый блок", "Намайнить блок бабла", { it.blocksFound >= 1 }),
+    BLOCK_67("⛏️", "Шахтёр 67", "Намайнить 67 блоков", { it.blocksFound >= 67 }),
+    BLOCK_6767("💎", "Бабло-пул", "Намайнить 6 767 блоков", { it.blocksFound >= 6767 }),
+    CPU_5("🖥️", "Разгон", "Частота майнера: уровень 5", { it.cpuLevel >= 5 }),
+    CPU_MAX("🔥", "Бурмалда на пределе", "Частота майнера на максимум", { it.cpuLevel >= BabloGame.CPU_MAX_LEVEL }),
+    INSTR_1M("🧠", "Миллион инструкций", "Процессор выполнил 1 млн инструкций", { it.cpuCycles >= 1_000_000 }),
+    INSTR_1B("🤯", "Миллиард инструкций", "Процессор выполнил 1 млрд инструкций", { it.cpuCycles >= 1_000_000_000 }),
+    PI_10("🥧", "Десять знаков", "Вычислить 10 знаков π", { it.piCount >= 10 }),
+    PI_67("🥧", "67 знаков π", "Вычислить 67 знаков π", { it.piCount >= 67 }),
+    PI_670("🧮", "Пи-фанат", "Вычислить 670 знаков π", { it.piCount >= 670 }),
+    PI_6767("📜", "Пи-маньяк", "Вычислить 6 767 знаков π", { it.piCount >= 6767 }),
+    PI_SIX_SEVEN("6️⃣", "67 в числе π", "Найти «67» в знаках π", { it.piSixSevens >= 1 }),
+    CLICKS_670K("🦴", "Кости пальца", "670 000 тыков", { it.totalClicks >= 670_000 }),
+    GOLDEN_67("🌟", "Мешочник 67", "Поймать 67 золотых мешков", { it.goldenCaught >= 67 }),
+    BUBBLES_670("🫧", "Пузырный король", "Поймать 670 пузырей", { it.bubblesPopped >= 670 }),
+    BUBBLE_STREAK_67("🎯", "Снайпер пузырей", "Серия из 67 пузырей подряд", { it.bestBubbleStreak >= 67 }),
+    ULTRA_67("⚡", "Ультра-зажим 67", "67 раз включить ультра-бабло", { it.ultraUses >= 67 }),
+    HAMMAM_670("🧱", "Очень упрямый", "670 раз попытаться купить хаммам", { it.hammamAttempts >= 670 }),
+    SKINS_ALL("🎨", "Коллекционер", "Купить все скины", { it.ownedSkins.size >= Skin.entries.size }),
+    WITHDRAW_6("6️⃣", "Шесть выводов", "Вывести бабло 6 раз", { it.withdrawals >= 6 }),
+    WITHDRAW_7("7️⃣", "Семь выводов", "Вывести бабло 7 раз", { it.withdrawals >= 7 }),
+    TOKENS_67("🎟️", "67 жетонов", "Накопить 67 жетонов 67", { it.tokens >= 67 }),
+    GEN_ALL("🏭", "Империя", "Купить хотя бы по одному генератору каждого типа", { g -> Gen.entries.all { g.count(it) >= 1 } }),
+    GEN_670("🌯", "Монополия", "670 генераторов одного типа", { g -> Gen.entries.any { g.count(it) >= 670 } }),
+    EARN_67("🔢", "67 нулей", "Заработать за всё время 10⁶⁷ бабла", { it.totalEarned >= 1e67 }),
 }
 
 data class GoldenBag(val xFrac: Float, val yFrac: Float, val expiresAt: Long)
@@ -221,6 +259,22 @@ class BabloGame(context: Context) {
     var depSpins by mutableIntStateOf(prefs.getInt("depSpins", 0))
         private set
     var depJackpots by mutableIntStateOf(prefs.getInt("depJackpots", 0))
+        private set
+    var slotSpins by mutableIntStateOf(prefs.getInt("slotSpins", 0))
+        private set
+    var slotSixSevens by mutableIntStateOf(prefs.getInt("slotSixSevens", 0))
+        private set
+    var slotThrees by mutableIntStateOf(prefs.getInt("slotThrees", 0))
+        private set
+    var slotCrowns by mutableIntStateOf(prefs.getInt("slotCrowns", 0))
+        private set
+    var cpuLevel by mutableIntStateOf(prefs.getInt("cpuLevel", 0))
+        private set
+    var blocksFound by mutableLongStateOf(prefs.getLong("blocks", 0L))
+        private set
+    var cpuCycles by mutableLongStateOf(prefs.getLong("cycles", 0L))
+        private set
+    var piSixSevens by mutableIntStateOf(prefs.getInt("piSixSevens", 0))
         private set
     var temperature by mutableFloatStateOf(prefs.getFloat("temp", 0f))
         private set
@@ -718,6 +772,120 @@ class BabloGame(context: Context) {
         return amount
     }
 
+    // ---------- 🎲 Слоты бабла ----------
+
+    data class SlotResult(val reels: List<String>, val bet: Double, val win: Double, val title: String, val big: Boolean)
+
+    /** Ставка — доля текущего бабла. Матожидание чуть меньше 1: казино всегда в плюсе. */
+    fun spinSlots(fraction: Double): SlotResult? {
+        val bet = floor(money * fraction)
+        if (bet < 1) return null
+        money -= bet
+        slotSpins++
+        val r = List(3) { SLOT_SYMBOLS.random() }
+        val three = r[0] == r[1] && r[1] == r[2]
+        val sixSeven = (r[0] == "6️⃣" && r[1] == "7️⃣") || (r[1] == "6️⃣" && r[2] == "7️⃣")
+        val pair = r[0] == r[1] || r[1] == r[2] || r[0] == r[2]
+        val pairBack = if (has(Perk.SLOT_INSURANCE)) 0.8 else 0.67
+        val (mult, title) = when {
+            three && r[0] == "👑" -> {
+                slotCrowns++
+                67.0 to "👑 КОРОЛЕВСКИЙ ДЖЕКПОТ x67"
+            }
+            three -> {
+                slotThrees++
+                15.0 to "🍀 Три в ряд x15"
+            }
+            sixSeven -> {
+                slotSixSevens++
+                6.7 to "6️⃣7️⃣ SIX SEVEN x6.7"
+            }
+            pair -> pairBack to "Пара: вернули ${(pairBack * 100).toInt()}%"
+            else -> 0.0 to "Мимо 💀"
+        }
+        val win = bet * mult
+        money += win
+        if (win > bet) totalEarned += win - bet
+        return SlotResult(r, bet, win, title, mult >= 6.7)
+    }
+
+    // ---------- ⛏️ Майнер бабла БУРМАЛДА-67 ----------
+
+    /** Процессор с программой-майнером; собирается в фоне (60+ тысяч строк ассемблера). */
+    @Volatile
+    var cpu: BurmaldaCpu? = null
+        private set
+    var cpuReboots by mutableIntStateOf(0)
+        private set
+    private var cpuAcc = 0.0
+    private var pendingBlocks = 0
+    private var savedNonce = prefs.getLong("nonce", 0L)
+
+    val cpuHz: Double
+        get() = if (cpuLevel == 0) 0.0 else 670.0 * 2.0.pow(cpuLevel - 1) * (if (has(Perk.CPU_CACHE)) 1.67 else 1.0)
+    val cpuCost: Double get() = 6.7e3 * 20.0.pow(cpuLevel)
+    val cpuMaxed get() = cpuLevel >= CPU_MAX_LEVEL
+    fun canUpgradeCpu() = !cpuMaxed && money >= cpuCost
+
+    fun upgradeCpu(): Boolean {
+        if (!canUpgradeCpu()) return false
+        money -= cpuCost
+        cpuLevel++
+        return true
+    }
+
+    private fun bootCpu(program: BurmaldaProgram): BurmaldaCpu = BurmaldaCpu(program).also { c ->
+        c.mem[BURMALDA_NONCE_ADDR] = savedNonce
+        c.onOut = { port, _ -> if (port == BURMALDA_PORT_BLOCK) pendingBlocks++ }
+    }
+
+    init {
+        thread(name = "burmalda-asm", isDaemon = true) {
+            cpu = bootCpu(BurmaldaAsm.assemble(burmaldaSource()))
+        }
+    }
+
+    /** Награда за блок: знак π решает множитель, «67» подряд в π — x67. */
+    data class BlockReward(val amount: Double, val digit: Int, val sixSeven: Boolean)
+
+    private fun mineBlock(): BlockReward {
+        blocksFound++
+        val (digit, sixSeven) = nextPiDigit()
+        var amount = (perSecond + perClick * 3 + 67) * (digit + 1) / 5.0
+        if (has(Perk.MINER_HASH)) amount *= 3
+        if (sixSeven) amount *= if (has(Perk.PI_67)) 670.0 else 67.0
+        earn(amount)
+        return BlockReward(amount, digit, sixSeven)
+    }
+
+    // ---------- 🥧 Знаки π ----------
+
+    private val pi = PiSpigot.restore(prefs.getString("pi", null))
+    var piCount by mutableLongStateOf(pi.count)
+        private set
+    /** Последние знаки π (не больше 670), для экрана. */
+    var piDigits by mutableStateOf(prefs.getString("piDigits", "") ?: "")
+        private set
+
+    /** Считает следующий знак π. Второе значение — получилось ли «67» с предыдущим знаком. */
+    private fun nextPiDigit(): Pair<Int, Boolean> {
+        val d = pi.nextDigit()
+        val sixSeven = d == 7 && piDigits.endsWith("6")
+        if (sixSeven) piSixSevens++
+        piDigits = (piDigits + d).takeLast(670)
+        piCount = pi.count
+        return d to sixSeven
+    }
+
+    /** Ручной знак π из вкладки майнера. */
+    fun computePiDigit(): BlockReward {
+        val (digit, sixSeven) = nextPiDigit()
+        var amount = (perClick * 6.7 + 6.7) * (digit + 1)
+        if (sixSeven) amount *= if (has(Perk.PI_67)) 670.0 else 67.0
+        earn(amount)
+        return BlockReward(amount, digit, sixSeven)
+    }
+
     // ---------- Вывод (престиж) ----------
 
     val canWithdraw get() = money >= WITHDRAW_MIN
@@ -739,7 +907,7 @@ class BabloGame(context: Context) {
     // ---------- Тик ----------
 
     /** bubbles — сколько пузырей выпустить в этом кадре. */
-    data class TickResult(val bubbles: Int, val boiled: Double)
+    data class TickResult(val bubbles: Int, val boiled: Double, val mined: Double = 0.0, val blocks: Int = 0, val piSixSeven: Boolean = false)
 
     fun tick(dtSec: Double): TickResult {
         val now = System.currentTimeMillis()
@@ -796,13 +964,40 @@ class BabloGame(context: Context) {
             }
         }
 
+        var mined = 0.0
+        var blocks = 0
+        var piSixSeven = false
+        val proc = cpu
+        if (proc != null && cpuLevel > 0) {
+            cpuAcc += cpuHz * dtSec
+            val budget = cpuAcc.toInt().coerceAtMost(MAX_INSTR_PER_TICK)
+            cpuAcc = (cpuAcc - cpuAcc.toInt()).coerceAtMost(1.0)
+            if (budget > 0) {
+                proc.run(budget)
+                cpuCycles += budget
+                savedNonce = proc.mem[BURMALDA_NONCE_ADDR]
+                if (proc.halted) {
+                    // Процессор упал — перезагружаем с того же nonce.
+                    cpuReboots++
+                    cpu = bootCpu(proc.program)
+                }
+            }
+            repeat(pendingBlocks) {
+                val b = mineBlock()
+                mined += b.amount
+                blocks++
+                piSixSeven = piSixSeven || b.sixSeven
+            }
+            pendingBlocks = 0
+        }
+
         var bubbles = 0
         if (turbo) {
             turboAcc += (if (has(Perk.LONG_BUL)) TURBO_RATE * 1.5 else TURBO_RATE) * dtSec
             bubbles = turboAcc.toInt()
             turboAcc -= bubbles
         }
-        return TickResult(bubbles, boiled)
+        return TickResult(bubbles, boiled, mined, blocks, piSixSeven)
     }
 
     fun save() {
@@ -826,6 +1021,17 @@ class BabloGame(context: Context) {
             putInt("depSpins", depSpins)
             putInt("depJackpots", depJackpots)
             putString("depKey", depKey)
+            putInt("slotSpins", slotSpins)
+            putInt("slotSixSevens", slotSixSevens)
+            putInt("slotThrees", slotThrees)
+            putInt("slotCrowns", slotCrowns)
+            putInt("cpuLevel", cpuLevel)
+            putLong("blocks", blocksFound)
+            putLong("cycles", cpuCycles)
+            putLong("nonce", savedNonce)
+            putInt("piSixSevens", piSixSevens)
+            putString("pi", pi.save())
+            putString("piDigits", piDigits)
             putString("depRefresh", depRefresh)
             putLong("depExpires", depExpiresAt)
             putString("depOAuthState", depOAuthState)
@@ -851,6 +1057,9 @@ class BabloGame(context: Context) {
 
     companion object {
         const val SAVE_VERSION = 3
+        const val CPU_MAX_LEVEL = 13
+        const val MAX_INSTR_PER_TICK = 250_000
+        val SLOT_SYMBOLS = listOf("💸", "💰", "🌯", "🧖", "👑", "6️⃣", "7️⃣")
         const val GEN_GROWTH = 1.15
         const val TURBO_RATE = 2.5
         const val FEVER_DURATION = 6_700L

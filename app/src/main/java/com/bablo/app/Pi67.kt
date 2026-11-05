@@ -1,5 +1,6 @@
 package com.bablo.app
 
+import java.math.BigInteger
 import kotlin.math.sqrt
 
 /*
@@ -6768,7 +6769,6 @@ fun pi67_965(): Double {
     for (k in 1..10787) s += 1.0 / (k.toDouble() * k * k * k)
     return Math.pow(90 * s, 0.25)
 }
-
 
 
 
@@ -73783,3 +73783,65 @@ fun pi67_10537(): Double {
     return s
 }
 
+
+/**
+ * Бесконечный потоковый спигот Гиббонса: каждый вызов [nextDigit] выдаёт следующий знак π
+ * (3, 1, 4, 1, 5, 9, …). Только целые числа, никаких округлений — знаки точные сколько угодно.
+ * Состояние можно сохранить строкой и продолжить с того же места.
+ */
+class PiSpigot private constructor(
+    private var q: BigInteger,
+    private var r: BigInteger,
+    private var t: BigInteger,
+    private var k: BigInteger,
+    private var n: BigInteger,
+    private var l: BigInteger,
+) {
+    /** Сколько знаков уже выдано (первый — тройка). */
+    var count = 0L
+        private set
+
+    fun nextDigit(): Int {
+        while (true) {
+            if (FOUR * q + r - t < n * t) {
+                val digit = n.toInt()
+                val nr = TEN * (r - n * t)
+                n = TEN * (THREE * q + r) / t - TEN * n
+                q *= TEN
+                r = nr
+                count++
+                return digit
+            }
+            val nr = (TWO * q + r) * l
+            val nn = (q * (SEVEN * k) + TWO + r * l) / (t * l)
+            q *= k
+            t *= l
+            l += TWO
+            k += ONE
+            n = nn
+            r = nr
+        }
+    }
+
+    fun save(): String = listOf(q, r, t, k, n, l).joinToString(",") + ",$count"
+
+    companion object {
+        private val ONE = BigInteger.ONE
+        private val TWO = BigInteger.valueOf(2)
+        private val THREE = BigInteger.valueOf(3)
+        private val FOUR = BigInteger.valueOf(4)
+        private val SEVEN = BigInteger.valueOf(7)
+        private val TEN = BigInteger.TEN
+
+        fun fresh() = PiSpigot(ONE, BigInteger.ZERO, ONE, ONE, THREE, THREE)
+
+        fun restore(saved: String?): PiSpigot {
+            val p = saved?.split(',') ?: return fresh()
+            if (p.size != 7) return fresh()
+            return runCatching {
+                PiSpigot(BigInteger(p[0]), BigInteger(p[1]), BigInteger(p[2]), BigInteger(p[3]), BigInteger(p[4]), BigInteger(p[5]))
+                    .also { it.count = p[6].toLong() }
+            }.getOrElse { fresh() }
+        }
+    }
+}

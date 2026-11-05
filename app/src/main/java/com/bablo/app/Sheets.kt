@@ -51,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-private val TABS = listOf("🏭 Бизнес", "👆 Кнопка", "🧖 Хаммам", "🎨 Скины", "🏆 Ачивки", "📊 Стата", "🎰 ДЕП")
+private val TABS = listOf("🏭 Бизнес", "👆 Кнопка", "🧖 Хаммам", "🎨 Скины", "🏆 Ачивки", "📊 Стата", "🎰 ДЕП", "🎲 Слоты", "⛏️ Майнер")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +63,10 @@ fun BabloSheet(
     onHammamUp: () -> Unit,
     onDenied: () -> Unit,
     onDep: (DepApi.Spin.Result) -> Unit,
+    onSlotSpin: () -> Unit,
+    onSlotResult: (BabloGame.SlotResult) -> Unit,
+    onCpuUpgrade: () -> Unit,
+    onPi: (BabloGame.BlockReward) -> Unit,
 ) {
     var tab by remember { mutableIntStateOf(initialTab) }
     ModalBottomSheet(
@@ -97,7 +101,9 @@ fun BabloSheet(
                     items(Achievement.entries) { AchievementRow(it, it in game.unlocked) }
                 }
                 5 -> item { StatsTab(game) }
-                else -> item { DepTab(game, onDep, onDenied) }
+                6 -> item { DepTab(game, onDep, onDenied) }
+                7 -> item { SlotsTab(game, onSlotSpin, onSlotResult, onDenied) }
+                else -> item { MinerTab(game, onCpuUpgrade, onPi, onDenied) }
             }
         }
     }
@@ -443,6 +449,9 @@ private fun StatsTab(game: BabloGame) {
         "👑 Ультра / 🌈 Ультра супер" to "${game.ultraUses} / ${game.ultraSuperUses}",
         "📞 Звонков принято" to game.callsAnswered.toString(),
         "🎰 Депов / джекпотов" to "${game.depSpins} / ${game.depJackpots}",
+        "🎲 Спинов в слотах" to game.slotSpins.toString(),
+        "⛏️ Блоков намайнено" to game.blocksFound.toString(),
+        "🥧 Знаков π" to "${game.piCount} («67»: ${game.piSixSevens})",
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         rows.forEach { (k, v) ->

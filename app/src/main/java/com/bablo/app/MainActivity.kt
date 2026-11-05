@@ -280,11 +280,24 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
         var rainAcc = 0f
         var ambientAcc = 0f
         var holdAcc = 0.0
+        var lastMinedFx = 0L
         while (true) {
             withFrameNanos { now ->
                 val dt = if (last == 0L) 0f else ((now - last) / 1e9f).coerceAtMost(0.1f)
                 last = now
                 val tr = game.tick(dt.toDouble())
+                if (tr.blocks > 0 && System.currentTimeMillis() - lastMinedFx > 600) {
+                    lastMinedFx = System.currentTimeMillis()
+                    val at = Offset(screenW * (0.2f + Random.nextFloat() * 0.6f), buttonCenter.y - buttonRadius * 1.1f)
+                    fx.floatingText(at, "⛏️ блок +${formatBablo(tr.mined)}", Color(0xFF80D8FF))
+                    sound.play(Sfx.COIN, rate = 1.6f, volume = 0.25f)
+                }
+                if (tr.piSixSeven) {
+                    fx.burst(buttonCenter, listOf("6️⃣", "7️⃣", "🥧", "⛏️"), 67, 1.8f)
+                    fx.floatingText(buttonCenter, "🥧 «67» В ЧИСЛЕ π! x67", Color(0xFFFFD600), big = true)
+                    fx.ring(buttonCenter, Color(0xFFFFD600), screenW, 0.9f, 30f)
+                    sound.play(Sfx.SIX_SEVEN)
+                }
                 if (tr.boiled > 0) {
                     fx.burst(buttonCenter, listOf("♨️", "💨", "🫧", "💰"), 18, 1f)
                     fx.floatingText(buttonCenter, "♨️ Кипение +${formatBablo(tr.boiled)}", Color(0xFFFFCC80), big = true)
@@ -504,6 +517,8 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                 BottomTab("🏭", "Бизнес", primary = true, Modifier.weight(1f)) { sheetTab = 0 }
                 BottomTab("👆", "Кнопка", primary = true, Modifier.weight(1f)) { sheetTab = 1 }
                 BottomTab("🧖", "Хаммам", primary = false, Modifier.weight(1f)) { sheetTab = 2 }
+                BottomTab("🎲", "Слоты", primary = false, Modifier.weight(1f)) { sheetTab = 7 }
+                BottomTab("⛏️", "Майнер", primary = false, Modifier.weight(1f)) { sheetTab = 8 }
                 BottomTab("🎰", "Деп", primary = false, Modifier.weight(0.8f)) { sheetTab = 6 }
                 BottomTab("⭐", "Ещё", primary = false, Modifier.weight(0.8f)) { sheetTab = 3 }
             }
@@ -631,6 +646,38 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
                 fx.kick(if (jackpot) 50f else 20f, 0.8f, Color(0xFFFFD600))
                 sound.play(if (jackpot) Sfx.ULTRA else Sfx.DEP)
                 buzz(jackpot)
+            },
+            onSlotSpin = { sound.play(Sfx.DEP) },
+            onSlotResult = { r ->
+                if (r.big) {
+                    fx.burst(buttonCenter, r.reels + listOf("💸", "💰"), 70, 1.8f)
+                    fx.confetti(buttonCenter, 100)
+                    fx.ring(buttonCenter, Color(0xFFFFD600), screenW * 1.2f, 0.9f, 30f)
+                    fx.kick(40f, 0.9f, Color(0xFFFFD600))
+                    sound.play(Sfx.ULTRA)
+                    buzz(true)
+                } else if (r.win > 0) {
+                    fx.burst(buttonCenter, r.reels, 16, 1f)
+                    sound.play(Sfx.COIN)
+                } else {
+                    sound.play(Sfx.DENIED, volume = 0.5f)
+                }
+                fx.floatingText(buttonCenter, r.title, if (r.win >= r.bet) Color(0xFFFFD600) else Color(0xFFFF8A80), big = r.big)
+            },
+            onCpuUpgrade = {
+                fx.burst(buttonCenter, listOf("⛏️", "🖥️", "💾", "⚡"), 40, 1.3f)
+                fx.ring(buttonCenter, Color(0xFF80D8FF), screenW, 0.8f, 24f)
+                sound.play(Sfx.BUY)
+                buzz(true)
+            },
+            onPi = { b ->
+                fx.floatingText(buttonCenter, "🥧 ${b.digit}  +${formatBablo(b.amount)}", if (b.sixSeven) Color(0xFFFFD600) else Color(0xFF80D8FF), big = b.sixSeven)
+                if (b.sixSeven) {
+                    fx.burst(buttonCenter, listOf("6️⃣", "7️⃣", "🥧"), 67, 1.8f)
+                    sound.play(Sfx.SIX_SEVEN)
+                } else {
+                    sound.play(Sfx.COIN, rate = 0.8f + b.digit / 9f)
+                }
             },
         )
     }
