@@ -460,6 +460,13 @@ private fun StatsTab(game: BabloGame) {
                 Text(v, fontWeight = FontWeight.Bold)
             }
         }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Версия ${BuildConfig.VERSION_NAME} · сборка ${BuildConfig.BUILD_NUMBER}",
+            fontSize = 12.sp,
+            color = Color.White.copy(alpha = 0.6f),
+        )
+        UpdateCheckButton()
     }
 }
 

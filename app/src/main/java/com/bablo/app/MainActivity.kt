@@ -196,6 +196,16 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
     // Вернулись из браузера после входа в DEP ID — сразу открываем вкладку ДЕП.
     LaunchedEffect(game.depCallback) { if (game.depCallback != null) sheetTab = 6 }
     var callLine by remember { mutableStateOf<String?>(null) }
+    var update by remember { mutableStateOf<Updater.Release?>(null) }
+
+    // При запуске смотрим, нет ли на GitHub сборки новее (у локальных сборок номер 0 — не пристаём).
+    LaunchedEffect(Unit) {
+        if (Updater.currentBuild > 0) {
+            runCatching { Updater.latest() }.getOrNull()
+                ?.takeIf { it.build > Updater.currentBuild }
+                ?.let { update = it }
+        }
+    }
     var pressed by remember { mutableStateOf(false) }
     var pressStart by remember { mutableLongStateOf(0L) }
     var holdCharge by remember { mutableFloatStateOf(0f) }
@@ -605,6 +615,8 @@ private fun BabloScreen(game: BabloGame, sound: SoundEngine) {
 
         AchievementBanner(game, sound, Modifier.align(Alignment.TopCenter))
     }
+
+    update?.let { UpdateDialog(it) { update = null } }
 
     callLine?.let { line ->
         AlertDialog(

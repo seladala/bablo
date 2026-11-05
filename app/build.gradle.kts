@@ -7,6 +7,9 @@ plugins {
 // OAuth-приложение DEP ID: -PDEP_CLIENT_ID=... или переменные окружения (секреты CI).
 fun depProp(name: String) = (findProperty(name) as String?) ?: System.getenv(name) ?: ""
 
+// Номер сборки GitHub Actions = номер релиза bablo-N; по нему приложение ищет обновления.
+val buildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+
 android {
     namespace = "com.bablo.app"
     compileSdk = 35
@@ -15,9 +18,11 @@ android {
         applicationId = "com.bablo.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 75
-        versionName = "6.7.8"
+        // 100 + номер сборки: каждая новая сборка CI ставится поверх старой.
+        versionCode = 100 + buildNumber
+        versionName = "6.7.9"
 
+        buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
         buildConfigField("String", "DEP_CLIENT_ID", "\"${depProp("DEP_CLIENT_ID")}\"")
         buildConfigField("String", "DEP_CLIENT_SECRET", "\"${depProp("DEP_CLIENT_SECRET")}\"")
     }
